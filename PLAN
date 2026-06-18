@@ -173,6 +173,8 @@ aws s3api put-bucket-notification --bucket "foo-bucket" --notification-configura
 
 where adapter_id and adapter_topic would be based on env variables on the adapter deployment (setting up the adapter in noobaa would be a manual configuration step)
 
+The adapter_topic is actually "secret_name/connection.json"  (relative path to the mounted secret connection.json)
+
 If successful, the BucketNotificationSet condition will be marked as "True"
 
 * TestEventReceived will be set to "True", once the adapter receives the TestEvent 

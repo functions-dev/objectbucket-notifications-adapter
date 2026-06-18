@@ -210,7 +210,7 @@ func main() {
 	}
 	adapterTopic := os.Getenv("ADAPTER_TOPIC")
 	if adapterTopic == "" {
-		adapterTopic = "mcg-adapter-connection"
+		adapterTopic = "mcg-adapter-connection/connect.json"
 	}
 	adapterPort := 8888
 	if portStr := os.Getenv("ADAPTER_PORT"); portStr != "" {
