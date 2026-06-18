@@ -11,13 +11,23 @@ import (
 	"github.com/google/uuid"
 )
 
-func DispatchEvent(ctx context.Context, targetURI string, bucketName string, eventName string, record json.RawMessage) error {
+type recordsPayload struct {
+	Records []json.RawMessage `json:"Records"`
+}
+
+func DispatchEvent(ctx context.Context, targetURI string, bucketName string, records []json.RawMessage) error {
+	payload := recordsPayload{Records: records}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshaling records payload: %w", err)
+	}
+
 	e := cloudevents.NewEvent()
-	e.SetType("com.noobaa.s3." + eventName)
+	e.SetType("com.noobaa.s3.notification")
 	e.SetSource("noobaa/" + bucketName)
 	e.SetID(uuid.New().String())
 	e.SetTime(time.Now())
-	if err := e.SetData(cloudevents.ApplicationJSON, record); err != nil {
+	if err := e.SetData(cloudevents.ApplicationJSON, data); err != nil {
 		return fmt.Errorf("setting event data: %w", err)
 	}
 

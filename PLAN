@@ -196,9 +196,9 @@ The noobaa event may look like this:
 {"Records":[{"eventVersion":"2.3","eventSource":"noobaa:s3","eventTime":"2026-06-17T11:28:44.771Z","s3":{"s3SchemaVersion":"1.0","object":{"sequencer":2,"key":"uploads/2026/06/17/6b8d9929-b142-4138-bb30-49487f6a0377-me_hat.jpg","size":1958176,"eTag":"2a198f942024fc2854fb70830c0988c3"},"bucket":{"name":"foo-bucket","ownerIdentity":{"principalId":"operator@noobaa.io"},"arn":"arn:aws:s3:::foo-bucket"}},"eventName":"ObjectCreated:Put","userIdentity":{"principalId":"obc-account.foo-bucket.6a3265ef@noobaa.io"},"requestParameters":{"sourceIPAddress":"::ffff:10.131.0.48"},"responseElements":{"x-amz-request-id":"mqhzmrdr-5uhto0-6s","x-amz-id-2":"mqhzmrdr-5uhto0-6s"}}]}
 ```
 
-for each record, the dispatcher will match the bucket name and eventName and find the list of triggers matching both the bucket name and the event name
+for each record, the dispatcher will match the bucket name and eventName and find the list of triggers matching both the bucket name and the event name.
 (dropping the "s3:" prefix, and matching '*' at the end of the specified event name as meaning any suffix (like in this case, "ObjectCreated:Put" matching the specified "s3:ObjectCreated:*")
-
+To each such trigger, it will send the list of records as a cloudevent (it will keep the same JSON structure of the original, including thje Records list, but will filter out records not matching the rules.)
 
 Multiple MCGOBCTrigger resources for the same bucket
 ----------------------------------------------------

@@ -39,6 +39,11 @@ type s3Bucket struct {
 	Name string `json:"name"`
 }
 
+type parsedRecord struct {
+	raw    json.RawMessage
+	header recordHeader
+}
+
 func (h *notificationHandler) handleNotification(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -61,6 +66,8 @@ func (h *notificationHandler) handleNotification(w http.ResponseWriter, r *http.
 	}
 
 	ctx := r.Context()
+
+	var dataRecords []parsedRecord
 	for _, rawRecord := range payload.Records {
 		var header recordHeader
 		if err := json.Unmarshal(rawRecord, &header); err != nil {
@@ -71,8 +78,12 @@ func (h *notificationHandler) handleNotification(w http.ResponseWriter, r *http.
 		if header.Event == "s3:TestEvent" {
 			h.handleTestEvent(ctx, header.Bucket)
 		} else if header.EventName != "" && header.S3 != nil {
-			h.handleDataEvent(ctx, header.S3.Bucket.Name, header.EventName, rawRecord)
+			dataRecords = append(dataRecords, parsedRecord{raw: rawRecord, header: header})
 		}
+	}
+
+	if len(dataRecords) > 0 {
+		h.dispatchDataEvents(ctx, dataRecords)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -107,30 +118,36 @@ func (h *notificationHandler) handleTestEvent(ctx context.Context, bucketName st
 	}
 }
 
-func (h *notificationHandler) handleDataEvent(ctx context.Context, bucketName, eventName string, rawRecord json.RawMessage) {
-	triggers, err := h.findTriggersForBucket(ctx, bucketName)
-	if err != nil {
-		log.Error(err, "finding triggers for data event", "bucket", bucketName, "event", eventName)
+func (h *notificationHandler) dispatchDataEvents(ctx context.Context, records []parsedRecord) {
+	var allTriggers internalv1alpha1.MCGOBCTriggerList
+	if err := h.client.List(ctx, &allTriggers); err != nil {
+		log.Error(err, "listing triggers for data events")
 		return
 	}
 
-	for _, trigger := range triggers {
-		matched := false
-		for _, pattern := range trigger.Spec.Events {
-			if eventmatch.MatchEvent(pattern, eventName) {
-				matched = true
-				break
+	for _, trigger := range allTriggers.Items {
+		var matchedRecords []json.RawMessage
+		for _, rec := range records {
+			if rec.header.S3.Bucket.Name != trigger.Spec.OBC.Name {
+				continue
+			}
+			for _, pattern := range trigger.Spec.Events {
+				if eventmatch.MatchEvent(pattern, rec.header.EventName) {
+					matchedRecords = append(matchedRecords, rec.raw)
+					break
+				}
 			}
 		}
-		if !matched {
+
+		if len(matchedRecords) == 0 {
 			continue
 		}
 
 		for _, target := range trigger.Spec.Triggers {
-			if err := ceDispatch.DispatchEvent(ctx, target.URI, bucketName, eventName, rawRecord); err != nil {
-				log.Error(err, "dispatching event", "target", target.URI, "bucket", bucketName, "event", eventName)
+			if err := ceDispatch.DispatchEvent(ctx, target.URI, trigger.Spec.OBC.Name, matchedRecords); err != nil {
+				log.Error(err, "dispatching event", "target", target.URI, "bucket", trigger.Spec.OBC.Name)
 			} else {
-				log.Info("dispatched event", "target", target.URI, "bucket", bucketName, "event", eventName)
+				log.Info("dispatched event", "target", target.URI, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
 			}
 		}
 	}
