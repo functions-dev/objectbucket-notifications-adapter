@@ -17,17 +17,13 @@ type recordsPayload struct {
 
 func DispatchEvent(ctx context.Context, targetURI string, bucketName string, records []json.RawMessage) error {
 	payload := recordsPayload{Records: records}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshaling records payload: %w", err)
-	}
 
 	e := cloudevents.NewEvent()
 	e.SetType("com.noobaa.s3.notification")
 	e.SetSource("noobaa/" + bucketName)
 	e.SetID(uuid.New().String())
 	e.SetTime(time.Now())
-	if err := e.SetData(cloudevents.ApplicationJSON, data); err != nil {
+	if err := e.SetData(cloudevents.ApplicationJSON, payload); err != nil {
 		return fmt.Errorf("setting event data: %w", err)
 	}
 
@@ -36,6 +32,7 @@ func DispatchEvent(ctx context.Context, targetURI string, bucketName string, rec
 		return fmt.Errorf("creating cloudevent client for %s: %w", targetURI, err)
 	}
 
+	ctx = cloudevents.WithEncodingStructured(ctx)
 	result := c.Send(ctx, e)
 	if cloudevents.IsUndelivered(result) {
 		return fmt.Errorf("failed to send CloudEvent to %s: %v", targetURI, result)
