@@ -60,11 +60,21 @@ spec:
                   CloudEvents to.
                 items:
                   properties:
+                    kafka:
+                      description: Kafka identifies a Kafka topic to send CloudEvents
+                        to.
+                      properties:
+                        topic:
+                          description: Topic is the Kafka topic to produce CloudEvents
+                            to.
+                          type: string
+                      required:
+                      - topic
+                      type: object
                     uri:
-                      description: URI is the absolute URL to send CloudEvents to.
+                      description: URI is the absolute URL to send CloudEvents to
+                        via HTTP.
                       type: string
-                  required:
-                  - uri
                   type: object
                 type: array
             required:

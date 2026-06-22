@@ -44,8 +44,15 @@ type OBCReference struct {
 }
 
 type TriggerTarget struct {
-	// URI is the absolute URL to send CloudEvents to.
-	URI string `json:"uri"`
+	// URI is the absolute URL to send CloudEvents to via HTTP.
+	URI string `json:"uri,omitempty"`
+	// Kafka identifies a Kafka topic to send CloudEvents to.
+	Kafka *KafkaTrigger `json:"kafka,omitempty"`
+}
+
+type KafkaTrigger struct {
+	// Topic is the Kafka topic to produce CloudEvents to.
+	Topic string `json:"topic"`
 }
 
 // MCGOBCTriggerStatus defines the observed state of MCGOBCTrigger.

@@ -6,19 +6,34 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/IBM/sarama"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	ceDispatch "github.com/functions-dev/mcg-adapter/internal/cloudevents"
 )
 
 var log = logf.Log.WithName("notification-server")
 
 type NotificationServer struct {
-	Client client.Client
-	Port   int
+	Client       client.Client
+	Port         int
+	KafkaBrokers []string
 }
 
 func (s *NotificationServer) Start(ctx context.Context) error {
-	handler := &notificationHandler{client: s.Client}
+	var kafkaProducer sarama.SyncProducer
+	if len(s.KafkaBrokers) > 0 {
+		var err error
+		kafkaProducer, err = ceDispatch.NewKafkaProducer(s.KafkaBrokers)
+		if err != nil {
+			return fmt.Errorf("creating kafka producer: %w", err)
+		}
+		defer kafkaProducer.Close()
+		log.Info("kafka producer initialized", "brokers", s.KafkaBrokers)
+	}
+
+	handler := &notificationHandler{client: s.Client, kafkaProducer: kafkaProducer}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler.handleNotification)

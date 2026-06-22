@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -221,6 +222,10 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	var kafkaBrokers []string
+	if brokersStr := os.Getenv("KAFKA_BROKERS"); brokersStr != "" {
+		kafkaBrokers = strings.Split(brokersStr, ",")
+	}
 
 	if err := (&controller.MCGOBCTriggerReconciler{
 		Client:       mgr.GetClient(),
@@ -234,8 +239,9 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	notifServer := &notificationserver.NotificationServer{
-		Client: mgr.GetClient(),
-		Port:   adapterPort,
+		Client:       mgr.GetClient(),
+		Port:         adapterPort,
+		KafkaBrokers: kafkaBrokers,
 	}
 	if err := mgr.Add(notifServer); err != nil {
 		setupLog.Error(err, "unable to add notification server")

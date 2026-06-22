@@ -12,3 +12,5 @@ spec:
   - "s3:ObjectCreated:*"
   triggers:
   - uri: http://foo.default.svc.cluster.local
+  - kafka:
+      topic: foo-topic

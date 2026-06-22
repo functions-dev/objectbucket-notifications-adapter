@@ -4,7 +4,7 @@ A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicl
 
 ## Description
 
-The MCG Adapter runs as an HTTP server inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It watches `MCGOBCTrigger` custom resources to determine which S3 events from which buckets should be forwarded to which trigger URIs. When NooBaa delivers a notification, the adapter matches the event against all configured triggers and dispatches CloudEvents via HTTP to the matching endpoints.
+The MCG Adapter runs as an HTTP server inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It watches `MCGOBCTrigger` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured triggers and dispatches CloudEvents via HTTP or Kafka to the matching endpoints.
 
 ## Custom Resource: MCGOBCTrigger
 
@@ -22,7 +22,11 @@ spec:
   triggers:
   - uri: http://foo.foobar.svc.cluster.local
   - uri: http://logger.foobar.svc.cluster.local
+  - kafka:
+      topic: foo-topic
 ```
+
+Triggers can target HTTP endpoints (via `uri`) or Kafka topics (via `kafka.topic`). A single trigger entry can specify either or both. The Kafka broker(s) to connect to are configured globally via the `KAFKA_BROKERS` environment variable.
 
 The controller manages three status conditions:
 
@@ -52,6 +56,7 @@ The adapter is configured via environment variables:
 | `ADAPTER_ID` | `mcg-adapter` | Identifier used in the S3 bucket notification configuration |
 | `ADAPTER_TOPIC` | `mcg-adapter-connection` | Topic/connection name registered in NooBaa |
 | `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on |
+| `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses (e.g. `broker1:9092,broker2:9092`). Required when using Kafka triggers. |
 
 ### NooBaa Connection Setup
 

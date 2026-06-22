@@ -3,8 +3,8 @@ Multicloud Object Gateway Adapter (NooNaa)
 
 The adapter will be an HTTP server running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection.
 It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by MCGOBCTrigger custom resources.
-The notifications to individual triggers will be sent as cloudevents via HTTP.
-It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, and the operator sdk (https://sdk.operatorframework.io)
+The notifications to individual triggers will be sent as cloudevents via HTTP or Kafka
+It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, https://github.com/IBM/sarama, and the operator sdk (https://sdk.operatorframework.io)
 
 NooBaa connection setup (manual, one-time)
 ------------------------------------------
@@ -77,6 +77,8 @@ spec:
   triggers:
   - uri: http://foo.foobar.svc.cluster.local
   - uri: http://logger.foobar.svc.cluster.local
+  - kafka:
+      topic: foo-topic
 status:
   conditions:
   - type: OBCCredentialsAvailable
@@ -117,6 +119,7 @@ status:
 ```
 
 the triggers.uri is, for now an, absolute URL where to send the cloudevents to.
+the trigger can also identify a Kafka topic to send the event to. The Kafka server to connect to will be defined by global default (configured via adapter env).
 
 the status conditions are:
 

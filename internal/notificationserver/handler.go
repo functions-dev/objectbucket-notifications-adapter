@@ -3,9 +3,11 @@ package notificationserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/IBM/sarama"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -17,7 +19,8 @@ import (
 )
 
 type notificationHandler struct {
-	client client.Client
+	client        client.Client
+	kafkaProducer sarama.SyncProducer
 }
 
 type notificationPayload struct {
@@ -144,10 +147,23 @@ func (h *notificationHandler) dispatchDataEvents(ctx context.Context, records []
 		}
 
 		for _, target := range trigger.Spec.Triggers {
-			if err := ceDispatch.DispatchEvent(ctx, target.URI, trigger.Spec.OBC.Name, matchedRecords); err != nil {
-				log.Error(err, "dispatching event", "target", target.URI, "bucket", trigger.Spec.OBC.Name)
-			} else {
-				log.Info("dispatched event", "target", target.URI, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
+			if target.URI != "" {
+				if err := ceDispatch.DispatchEvent(ctx, target.URI, trigger.Spec.OBC.Name, matchedRecords); err != nil {
+					log.Error(err, "dispatching event", "target", target.URI, "bucket", trigger.Spec.OBC.Name)
+				} else {
+					log.Info("dispatched event", "target", target.URI, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
+				}
+			}
+			if target.Kafka != nil {
+				if h.kafkaProducer == nil {
+					log.Error(fmt.Errorf("no kafka brokers configured"), "cannot dispatch to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name)
+					continue
+				}
+				if err := ceDispatch.DispatchEventToKafka(ctx, h.kafkaProducer, target.Kafka.Topic, trigger.Spec.OBC.Name, matchedRecords); err != nil {
+					log.Error(err, "dispatching event to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name)
+				} else {
+					log.Info("dispatched event to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
+				}
 			}
 		}
 	}
