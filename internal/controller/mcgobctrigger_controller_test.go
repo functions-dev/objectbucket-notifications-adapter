@@ -51,7 +51,15 @@ var _ = Describe("MCGOBCTrigger Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: internalv1alpha1.MCGOBCTriggerSpec{
+						OBC: internalv1alpha1.OBCReference{
+							Name: "test-obc",
+						},
+						Events: []string{"s3:ObjectCreated:*"},
+						Triggers: []internalv1alpha1.TriggerTarget{
+							{URI: "http://localhost:8080"},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
