@@ -19,13 +19,14 @@ type NotificationServer struct {
 	Client       client.Client
 	Port         int
 	KafkaBrokers []string
+	KafkaConfig  *sarama.Config
 }
 
 func (s *NotificationServer) Start(ctx context.Context) error {
 	var kafkaProducer sarama.SyncProducer
 	if len(s.KafkaBrokers) > 0 {
 		var err error
-		kafkaProducer, err = ceDispatch.NewKafkaProducer(s.KafkaBrokers)
+		kafkaProducer, err = ceDispatch.NewKafkaProducer(s.KafkaBrokers, s.KafkaConfig)
 		if err != nil {
 			return fmt.Errorf("creating kafka producer: %w", err)
 		}

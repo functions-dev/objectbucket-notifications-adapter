@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -28,8 +29,10 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -39,8 +42,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/IBM/sarama"
+
 	internalv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
 	"github.com/functions-dev/mcg-adapter/internal/controller"
+	kafkaconfig "github.com/functions-dev/mcg-adapter/internal/kafka"
 	"github.com/functions-dev/mcg-adapter/internal/notificationserver"
 	// +kubebuilder:scaffold:imports
 )
@@ -227,6 +233,42 @@ func main() {
 		kafkaBrokers = strings.Split(brokersStr, ",")
 	}
 
+	var kafkaCfg *sarama.Config
+	if kafkaSecretName := os.Getenv("KAFKA_SECRET"); kafkaSecretName != "" {
+		ns := os.Getenv("POD_NAMESPACE")
+		if ns == "" {
+			nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+			if err != nil {
+				setupLog.Error(err, "cannot determine pod namespace for KAFKA_SECRET")
+				os.Exit(1)
+			}
+			ns = strings.TrimSpace(string(nsBytes))
+		}
+		clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+		if err != nil {
+			setupLog.Error(err, "creating kubernetes clientset for KAFKA_SECRET")
+			os.Exit(1)
+		}
+		secret, err := clientset.CoreV1().Secrets(ns).Get(context.Background(), kafkaSecretName, metav1.GetOptions{})
+		if err != nil {
+			setupLog.Error(err, "reading KAFKA_SECRET", "name", kafkaSecretName, "namespace", ns)
+			os.Exit(1)
+		}
+		kafkaCfg, err = kafkaconfig.NewConfig(secret.Data)
+		if err != nil {
+			setupLog.Error(err, "configuring kafka from secret", "name", kafkaSecretName)
+			os.Exit(1)
+		}
+		setupLog.Info("kafka configured from secret", "name", kafkaSecretName, "namespace", ns)
+	} else {
+		var err error
+		kafkaCfg, err = kafkaconfig.NewConfig(nil)
+		if err != nil {
+			setupLog.Error(err, "creating default kafka config")
+			os.Exit(1)
+		}
+	}
+
 	if err := (&controller.MCGOBCTriggerReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
@@ -242,6 +284,7 @@ func main() {
 		Client:       mgr.GetClient(),
 		Port:         adapterPort,
 		KafkaBrokers: kafkaBrokers,
+		KafkaConfig:  kafkaCfg,
 	}
 	if err := mgr.Add(notifServer); err != nil {
 		setupLog.Error(err, "unable to add notification server")

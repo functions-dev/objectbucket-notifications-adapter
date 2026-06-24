@@ -258,6 +258,15 @@ following permissions, bound via a ClusterRoleBinding:
   watch, create, update, patch, delete). The operator needs to watch for changes,
   update status conditions, and manage finalizers.
 
+Kafka configuration
+-------------------
+
+Kafka configuration is defined via env on the adapter Deployment:
+
+	KAFKA_BROKERS: comma-separated list of host:port
+	KAFKA_SECRET: <name of the secret from the namespace of the adapter deployment>
+
+The format of the kafka secret is defined in ./kafka-secret-format.md
 
 Delivery failure handling (non-goal)
 ------------------------------------

@@ -49,9 +49,7 @@ func DispatchEvent(ctx context.Context, targetURI string, bucketName string, rec
 	return nil
 }
 
-func NewKafkaProducer(brokers []string) (sarama.SyncProducer, error) {
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
+func NewKafkaProducer(brokers []string, config *sarama.Config) (sarama.SyncProducer, error) {
 	return sarama.NewSyncProducer(brokers, config)
 }
 
