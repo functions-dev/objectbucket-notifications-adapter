@@ -124,7 +124,7 @@ type scramClient struct {
 }
 
 func (c *scramClient) Begin(userName, password, authzID string) error {
-	client, err := c.HashGeneratorFcn.NewClient(userName, password, authzID)
+	client, err := c.NewClient(userName, password, authzID)
 	if err != nil {
 		return err
 	}
