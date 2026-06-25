@@ -1,15 +1,15 @@
 Multicloud Object Gateway Adapter (NooNaa)
 ==========================================
 
-The adapter will be an HTTP server running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection.
+The adapter will be an HTTP server and/or Kafka consumer running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection (either as HTTP notifications, or Kafka notifications)
 It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by MCGOBCTrigger custom resources.
 The notifications to individual triggers will be sent as cloudevents via HTTP or Kafka
 It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, https://github.com/IBM/sarama, and the operator sdk (https://sdk.operatorframework.io)
 
-NooBaa connection setup (manual, one-time)
-------------------------------------------
+NooBaa HTTP connection setup (manual, one-time)
+-----------------------------------------------
 
-Before the adapter can receive bucket notifications, it must be registered as an
+Before the adapter can receive bucket notifications via HTTP, it must be registered as an
 HTTP notification connection in NooBaa. This is a manual, one-time setup step
 performed by a cluster administrator.
 
@@ -57,7 +57,6 @@ identify its connection name (used as the Topic prefix in put-bucket-notificatio
 calls). When the operator calls put-bucket-notification for a bucket, it uses
 this connection name so that NooBaa knows to deliver notifications to the
 adapter's HTTP endpoint.
-
 
 Internal MCG/NooBaa trigger CRD
 -------------------------------
@@ -258,6 +257,160 @@ following permissions, bound via a ClusterRoleBinding:
   watch, create, update, patch, delete). The operator needs to watch for changes,
   update status conditions, and manage finalizers.
 
+NooBaa Kafka connection setup (manual, one-time)
+-------------------------------------------------
+
+As an alternative to the HTTP connection, the adapter can receive bucket
+notifications from NooBaa via a Kafka topic. This requires a Strimzi-managed
+Kafka cluster and is a manual, one-time setup performed by a cluster
+administrator.
+
+1. Create the Kafka topic and users (Strimzi):
+
+```
+# Topic for NooBaa notifications
+cat <<EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: mcg-adapter-notifications
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 8
+  replicas: 3
+  config:
+    retention.ms: 86400000
+    cleanup.policy: delete
+EOF
+
+# KafkaUser for NooBaa to publish notifications
+cat <<EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: noobaa-notifications-user
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: mcg-adapter-notifications
+          patternType: literal
+        operations: [Read, Describe, Write, Create, Delete]
+        host: "*"
+      - resource:
+          type: group
+          name: mcg-adapter-notifications
+          patternType: literal
+        operations: [Describe]
+        host: "*"
+EOF
+
+# KafkaUser for the adapter (consuming notifications + producing cloudevents)
+cat <<EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: mcg-adapter-user
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: "*"
+        operations: [Read, Describe, Write, Create, Delete]
+        host: "*"
+      - resource:
+          type: group
+          name: "*"
+        operations: [Read]
+        host: "*"
+EOF
+```
+
+2. Create a Secret in the openshift-storage namespace containing the Kafka
+   connection details for NooBaa, including SASL credentials from the
+   noobaa-notifications-user KafkaUser secret:
+
+```
+password=$(oc get secret -n kafka noobaa-notifications-user \
+  -o jsonpath='{.data.password}' | base64 --decode)
+
+name="mcg-adapter-notifications-connection"
+
+tmp=$(mktemp -d)
+cat > "$tmp/connect.json" <<EOF
+{
+  "name": "$name",
+  "notification_protocol": "kafka",
+  "topic": "mcg-adapter-notifications",
+  "kafka_options_object": {
+    "metadata.broker.list": "my-cluster-kafka-bootstrap.kafka.svc:9095",
+    "security.protocol": "SASL_PLAINTEXT",
+    "sasl.mechanism": "SCRAM-SHA-512",
+    "sasl.username": "noobaa-notifications-user",
+    "sasl.password": "$password"
+  }
+}
+EOF
+
+oc delete secret -n openshift-storage "$name" || true
+oc create secret generic "$name" \
+  --from-file="$tmp/connect.json" -n openshift-storage
+rm -rf "$tmp"
+```
+
+3. Patch the NooBaa CR to register the Kafka connection and enable bucket
+   notifications:
+
+```
+existing_connections=$(oc get noobaa noobaa -n openshift-storage -o json \
+  | jq -c '.spec.bucketNotifications.connections // []')
+
+name="mcg-adapter-notifications-connection"
+updated_connections=$(echo "$existing_connections" | jq -c \
+  --arg name "$name" \
+  '[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]')
+
+oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
+  "spec": {
+    "bucketNotifications": {
+      "connections": '"${updated_connections}"',
+      "enabled": true
+    }
+  }
+}'
+```
+
+4. When the operator calls put-bucket-notification for a bucket, it uses the
+   Kafka connection name as the Topic prefix, e.g.:
+
+```
+aws s3api put-bucket-notification --bucket "foo-bucket" \
+  --notification-configuration '{
+    "TopicConfiguration": {
+      "Id": "mcg-adapter-notifications-connection",
+      "Events": ["s3:ObjectCreated:*"],
+      "Topic": "mcg-adapter-notifications-connection/connect.json"
+    }
+  }'
+```
+
+
 Kafka configuration
 -------------------
 
@@ -265,6 +418,13 @@ Kafka configuration is defined via env on the adapter Deployment:
 
 	KAFKA_BROKERS: comma-separated list of host:port
 	KAFKA_SECRET: <name of the secret from the namespace of the adapter deployment>
+	KAFKA_NOTIFICATIONS_TOPIC: the Kafka topic to consume NooBaa bucket
+	    notifications from (e.g. "mcg-adapter-notifications")
+	KAFKA_NOTIFICATIONS_GROUP_ID: the consumer group ID for consuming
+	    NooBaa notifications (e.g. "mcg-adapter-notifications")
+
+The same Kafka credentials (KAFKA_SECRET) are used for both consuming
+notifications from NooBaa and producing cloudevents to trigger Kafka topics.
 
 The format of the kafka secret is defined in ./kafka-secret-format.md
 
