@@ -14,6 +14,13 @@ import (
 	"github.com/IBM/sarama"
 )
 
+const (
+	keyProtocol = "protocol"
+	keyUser     = "user"
+	keyPassword = "password"
+	keyCACrt    = "ca.crt"
+)
+
 func TestNewConfig_NilData(t *testing.T) {
 	cfg, err := NewConfig(nil)
 	if err != nil {
@@ -31,14 +38,14 @@ func TestNewConfig_NilData(t *testing.T) {
 }
 
 func TestNewConfig_MissingProtocol(t *testing.T) {
-	_, err := NewConfig(map[string][]byte{"user": []byte("x")})
+	_, err := NewConfig(map[string][]byte{keyUser: []byte("x")})
 	if err == nil {
 		t.Fatal("expected error for missing protocol")
 	}
 }
 
 func TestNewConfig_Plaintext(t *testing.T) {
-	cfg, err := NewConfig(map[string][]byte{"protocol": []byte("PLAINTEXT")})
+	cfg, err := NewConfig(map[string][]byte{keyProtocol: []byte("PLAINTEXT")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,16 +61,16 @@ func TestNewConfig_SASLPlaintext(t *testing.T) {
 		wantMech  sarama.SASLMechanism
 	}{
 		{"default PLAIN", "", sarama.SASLTypePlaintext},
-		{"explicit PLAIN", "PLAIN", sarama.SASLTypePlaintext},
-		{"SCRAM-SHA-256", "SCRAM-SHA-256", sarama.SASLTypeSCRAMSHA256},
-		{"SCRAM-SHA-512", "SCRAM-SHA-512", sarama.SASLTypeSCRAMSHA512},
+		{"explicit PLAIN", SASLMechanismPlain, sarama.SASLTypePlaintext},
+		{SASLMechanismSHA256, SASLMechanismSHA256, sarama.SASLTypeSCRAMSHA256},
+		{SASLMechanismSHA512, SASLMechanismSHA512, sarama.SASLTypeSCRAMSHA512},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data := map[string][]byte{
-				"protocol": []byte("SASL_PLAINTEXT"),
-				"user":     []byte("alice"),
-				"password": []byte("secret"),
+				keyProtocol: []byte("SASL_PLAINTEXT"),
+				keyUser:     []byte("alice"),
+				keyPassword: []byte("secret"),
 			}
 			if tt.mechanism != "" {
 				data["sasl.mechanism"] = []byte(tt.mechanism)
@@ -96,8 +103,8 @@ func TestNewConfig_SASLPlaintext(t *testing.T) {
 
 func TestNewConfig_SASLMissingCredentials(t *testing.T) {
 	data := map[string][]byte{
-		"protocol": []byte("SASL_PLAINTEXT"),
-		"user":     []byte("alice"),
+		keyProtocol: []byte("SASL_PLAINTEXT"),
+		keyUser:     []byte("alice"),
 	}
 	_, err := NewConfig(data)
 	if err == nil {
@@ -107,9 +114,9 @@ func TestNewConfig_SASLMissingCredentials(t *testing.T) {
 
 func TestNewConfig_UnsupportedMechanism(t *testing.T) {
 	data := map[string][]byte{
-		"protocol":       []byte("SASL_PLAINTEXT"),
-		"user":           []byte("alice"),
-		"password":       []byte("secret"),
+		keyProtocol:      []byte("SASL_PLAINTEXT"),
+		keyUser:          []byte("alice"),
+		keyPassword:      []byte("secret"),
 		"sasl.mechanism": []byte("OAUTHBEARER"),
 	}
 	_, err := NewConfig(data)
@@ -124,10 +131,10 @@ func TestNewConfig_SSL(t *testing.T) {
 
 	t.Run("with client cert", func(t *testing.T) {
 		data := map[string][]byte{
-			"protocol": []byte("SSL"),
-			"ca.crt":   pemEncodeCert(caCert),
-			"user.crt": pemEncodeCert(clientCert),
-			"user.key": pemEncodeKey(t, clientKey),
+			keyProtocol: []byte("SSL"),
+			keyCACrt:    pemEncodeCert(caCert),
+			"user.crt":  pemEncodeCert(clientCert),
+			"user.key":  pemEncodeKey(t, clientKey),
 		}
 		cfg, err := NewConfig(data)
 		if err != nil {
@@ -146,8 +153,8 @@ func TestNewConfig_SSL(t *testing.T) {
 
 	t.Run("with user.skip", func(t *testing.T) {
 		data := map[string][]byte{
-			"protocol":  []byte("SSL"),
-			"ca.crt":    pemEncodeCert(caCert),
+			keyProtocol: []byte("SSL"),
+			keyCACrt:    pemEncodeCert(caCert),
 			"user.skip": []byte("true"),
 		}
 		cfg, err := NewConfig(data)
@@ -164,8 +171,8 @@ func TestNewConfig_SSL(t *testing.T) {
 
 	t.Run("missing client cert", func(t *testing.T) {
 		data := map[string][]byte{
-			"protocol": []byte("SSL"),
-			"ca.crt":   pemEncodeCert(caCert),
+			keyProtocol: []byte("SSL"),
+			keyCACrt:    pemEncodeCert(caCert),
 		}
 		_, err := NewConfig(data)
 		if err == nil {
@@ -175,7 +182,7 @@ func TestNewConfig_SSL(t *testing.T) {
 
 	t.Run("no ca.crt uses system roots", func(t *testing.T) {
 		data := map[string][]byte{
-			"protocol":  []byte("SSL"),
+			keyProtocol: []byte("SSL"),
 			"user.skip": []byte("true"),
 		}
 		cfg, err := NewConfig(data)
@@ -192,11 +199,11 @@ func TestNewConfig_SASL_SSL(t *testing.T) {
 	caCert, _ := generateTestCA(t)
 
 	data := map[string][]byte{
-		"protocol":       []byte("SASL_SSL"),
+		keyProtocol:      []byte("SASL_SSL"),
 		"sasl.mechanism": []byte("SCRAM-SHA-512"),
-		"user":           []byte("alice"),
-		"password":       []byte("secret"),
-		"ca.crt":         pemEncodeCert(caCert),
+		keyUser:          []byte("alice"),
+		keyPassword:      []byte("secret"),
+		keyCACrt:         pemEncodeCert(caCert),
 	}
 	cfg, err := NewConfig(data)
 	if err != nil {
@@ -214,7 +221,7 @@ func TestNewConfig_SASL_SSL(t *testing.T) {
 }
 
 func TestNewConfig_UnsupportedProtocol(t *testing.T) {
-	_, err := NewConfig(map[string][]byte{"protocol": []byte("BOGUS")})
+	_, err := NewConfig(map[string][]byte{keyProtocol: []byte("BOGUS")})
 	if err == nil {
 		t.Fatal("expected error for unsupported protocol")
 	}

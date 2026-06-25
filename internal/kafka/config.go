@@ -10,6 +10,12 @@ import (
 	"github.com/xdg-go/scram"
 )
 
+const (
+	SASLMechanismPlain  = "PLAIN"
+	SASLMechanismSHA256 = "SCRAM-SHA-256"
+	SASLMechanismSHA512 = "SCRAM-SHA-512"
+)
+
 func NewConfig(secretData map[string][]byte) (*sarama.Config, error) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
@@ -57,7 +63,7 @@ func configureSASL(config *sarama.Config, data map[string][]byte) error {
 
 	mechanism := strings.TrimSpace(string(data["sasl.mechanism"]))
 	if mechanism == "" {
-		mechanism = "PLAIN"
+		mechanism = SASLMechanismPlain
 	}
 
 	config.Net.SASL.Enable = true
@@ -65,14 +71,14 @@ func configureSASL(config *sarama.Config, data map[string][]byte) error {
 	config.Net.SASL.Password = password
 
 	switch mechanism {
-	case "PLAIN":
+	case SASLMechanismPlain:
 		config.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-	case "SCRAM-SHA-256":
+	case SASLMechanismSHA256:
 		config.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
 		config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
 			return &scramClient{HashGeneratorFcn: scram.SHA256}
 		}
-	case "SCRAM-SHA-512":
+	case SASLMechanismSHA512:
 		config.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
 		config.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
 			return &scramClient{HashGeneratorFcn: scram.SHA512}
