@@ -4,7 +4,7 @@ A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicl
 
 ## Description
 
-The MCG Adapter runs as an HTTP server inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It watches `MCGOBCTrigger` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured triggers and dispatches CloudEvents via HTTP or Kafka to the matching endpoints.
+The MCG Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `MCGOBCTrigger` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured triggers and dispatches CloudEvents via HTTP or Kafka to the matching endpoints.
 
 ## Custom Resource: MCGOBCTrigger
 
@@ -54,13 +54,17 @@ The adapter is configured via environment variables:
 | Variable | Default | Description |
 |---|---|---|
 | `ADAPTER_ID` | `mcg-adapter` | Identifier used in the S3 bucket notification configuration |
-| `ADAPTER_TOPIC` | `mcg-adapter-connection` | Topic/connection name registered in NooBaa |
-| `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on |
-| `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses (e.g. `broker1:9092,broker2:9092`). Required when using Kafka triggers. |
+| `ADAPTER_TOPIC` | `mcg-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
+| `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on (HTTP mode only) |
+| `NOTIFICATIONS_MODE` | `http` | `http` or `kafka` — selects how the adapter receives NooBaa notifications |
+| `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses. Required for Kafka triggers and when `NOTIFICATIONS_MODE=kafka`. |
+| `KAFKA_SECRET` | _(none)_ | Name of a Kubernetes Secret (in the adapter's namespace) containing Kafka credentials. See `kafka-secret-format.md`. |
+| `KAFKA_NOTIFICATIONS_TOPIC` | _(none)_ | Kafka topic to consume NooBaa notifications from. Required when `NOTIFICATIONS_MODE=kafka`. |
+| `KAFKA_NOTIFICATIONS_GROUP_ID` | _(none)_ | Consumer group ID for consuming NooBaa notifications. Required when `NOTIFICATIONS_MODE=kafka`. |
 
-### NooBaa Connection Setup
+### NooBaa Connection Setup (HTTP mode)
 
-Before the adapter can receive notifications, register it as an HTTP connection in NooBaa (one-time setup):
+Before the adapter can receive notifications via HTTP, register it as an HTTP connection in NooBaa (one-time setup):
 
 1. Create the connection secret:
 
@@ -98,6 +102,17 @@ oc patch noobaa noobaa --type=’merge’ -n openshift-storage -p ‘{
 }’
 ```
 
+### NooBaa Connection Setup (Kafka mode)
+
+As an alternative to HTTP, the adapter can consume NooBaa notifications from a Kafka topic. This requires a Strimzi-managed Kafka cluster. See the `PLAN` file for detailed setup steps, including creating the KafkaTopic, KafkaUsers, and the NooBaa Kafka connection secret.
+
+Summary of the one-time setup:
+
+1. Create a `KafkaTopic` (e.g. `mcg-adapter-notifications`) and `KafkaUser` resources in Strimzi
+2. Create a NooBaa connection secret with `notification_protocol: kafka` pointing to the Kafka bootstrap and topic
+3. Patch the NooBaa CR to register the Kafka connection
+4. Create a Kubernetes Secret in the adapter’s namespace with the adapter’s Kafka credentials (see `kafka-secret-format.md`)
+
 ### Deploy
 
 ```sh
@@ -105,6 +120,14 @@ make docker-build docker-push IMG=<some-registry>/mcg-adapter:tag
 make install
 make deploy IMG=<some-registry>/mcg-adapter:tag
 ```
+
+To deploy in Kafka notifications mode (using default values from the PLAN):
+
+```sh
+make deploy-kafka IMG=<some-registry>/mcg-adapter:tag
+```
+
+The `deploy-kafka` target uses the kustomize overlay in `config/kafka/` which sets `NOTIFICATIONS_MODE=kafka` along with default Kafka broker, topic, and secret values. Edit `config/kafka/kafka_env_patch.yaml` to customize these for your cluster.
 
 ### Run Locally (development)
 

@@ -72,6 +72,8 @@ spec:
           value: "mcg-adapter-connection/connect.json"
         - name: ADAPTER_PORT
           value: "8888"
+        - name: NOTIFICATIONS_MODE
+          value: "http"
         ports:
         - containerPort: 8888
           name: notifications

@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -228,6 +229,18 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	notificationsMode := os.Getenv("NOTIFICATIONS_MODE")
+	if notificationsMode == "" {
+		notificationsMode = "http"
+	}
+	if notificationsMode != "http" && notificationsMode != "kafka" {
+		setupLog.Error(fmt.Errorf("invalid NOTIFICATIONS_MODE %q", notificationsMode), "must be \"http\" or \"kafka\"")
+		os.Exit(1)
+	}
+
+	kafkaNotificationsTopic := os.Getenv("KAFKA_NOTIFICATIONS_TOPIC")
+	kafkaNotificationsGroupID := os.Getenv("KAFKA_NOTIFICATIONS_GROUP_ID")
+
 	var kafkaBrokers []string
 	if brokersStr := os.Getenv("KAFKA_BROKERS"); brokersStr != "" {
 		kafkaBrokers = strings.Split(brokersStr, ",")
@@ -280,11 +293,29 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
+	if notificationsMode == "kafka" {
+		if kafkaNotificationsTopic == "" {
+			setupLog.Error(fmt.Errorf("KAFKA_NOTIFICATIONS_TOPIC is required when NOTIFICATIONS_MODE=kafka"), "missing env")
+			os.Exit(1)
+		}
+		if kafkaNotificationsGroupID == "" {
+			setupLog.Error(fmt.Errorf("KAFKA_NOTIFICATIONS_GROUP_ID is required when NOTIFICATIONS_MODE=kafka"), "missing env")
+			os.Exit(1)
+		}
+		if len(kafkaBrokers) == 0 {
+			setupLog.Error(fmt.Errorf("KAFKA_BROKERS is required when NOTIFICATIONS_MODE=kafka"), "missing env")
+			os.Exit(1)
+		}
+	}
+
 	notifServer := &notificationserver.NotificationServer{
-		Client:       mgr.GetClient(),
-		Port:         adapterPort,
-		KafkaBrokers: kafkaBrokers,
-		KafkaConfig:  kafkaCfg,
+		Client:                    mgr.GetClient(),
+		Port:                      adapterPort,
+		KafkaBrokers:              kafkaBrokers,
+		KafkaConfig:               kafkaCfg,
+		NotificationsMode:         notificationsMode,
+		KafkaNotificationsTopic:   kafkaNotificationsTopic,
+		KafkaNotificationsGroupID: kafkaNotificationsGroupID,
 	}
 	if err := mgr.Add(notifServer); err != nil {
 		setupLog.Error(err, "unable to add notification server")

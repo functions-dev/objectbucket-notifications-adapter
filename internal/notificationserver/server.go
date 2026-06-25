@@ -16,10 +16,13 @@ import (
 var log = logf.Log.WithName("notification-server")
 
 type NotificationServer struct {
-	Client       client.Client
-	Port         int
-	KafkaBrokers []string
-	KafkaConfig  *sarama.Config
+	Client                    client.Client
+	Port                      int
+	KafkaBrokers              []string
+	KafkaConfig               *sarama.Config
+	NotificationsMode         string
+	KafkaNotificationsTopic   string
+	KafkaNotificationsGroupID string
 }
 
 func (s *NotificationServer) Start(ctx context.Context) error {
@@ -36,6 +39,13 @@ func (s *NotificationServer) Start(ctx context.Context) error {
 
 	handler := &notificationHandler{client: s.Client, kafkaProducer: kafkaProducer}
 
+	if s.NotificationsMode == "kafka" {
+		return s.startKafkaConsumer(ctx, handler)
+	}
+	return s.startHTTPServer(ctx, handler)
+}
+
+func (s *NotificationServer) startHTTPServer(ctx context.Context, handler *notificationHandler) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler.handleNotification)
 
@@ -54,11 +64,48 @@ func (s *NotificationServer) Start(ctx context.Context) error {
 		}
 	}()
 
-	log.Info("starting notification server", "port", s.Port)
+	log.Info("starting notification HTTP server", "port", s.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("notification server: %w", err)
 	}
 	return nil
+}
+
+func (s *NotificationServer) startKafkaConsumer(ctx context.Context, handler *notificationHandler) error {
+	consumerConfig := *s.KafkaConfig
+	consumerConfig.Consumer.Return.Errors = true
+	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetNewest
+
+	consumerGroup, err := sarama.NewConsumerGroup(s.KafkaBrokers, s.KafkaNotificationsGroupID, &consumerConfig)
+	if err != nil {
+		return fmt.Errorf("creating kafka consumer group: %w", err)
+	}
+	defer func() { _ = consumerGroup.Close() }()
+
+	log.Info("starting kafka notification consumer",
+		"topic", s.KafkaNotificationsTopic,
+		"group", s.KafkaNotificationsGroupID,
+		"brokers", s.KafkaBrokers)
+
+	go func() {
+		for err := range consumerGroup.Errors() {
+			log.Error(err, "kafka consumer group error")
+		}
+	}()
+
+	cgHandler := &consumerGroupHandler{handler: handler}
+
+	for {
+		if err := consumerGroup.Consume(ctx, []string{s.KafkaNotificationsTopic}, cgHandler); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			log.Error(err, "kafka consumer group session error, restarting")
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
 }
 
 func (s *NotificationServer) NeedLeaderElection() bool {

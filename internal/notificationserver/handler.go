@@ -61,14 +61,20 @@ func (h *notificationHandler) handleNotification(w http.ResponseWriter, r *http.
 	}
 	defer func() { _ = r.Body.Close() }()
 
-	var payload notificationPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		log.Error(err, "parsing notification payload")
+	if err := h.processNotification(r.Context(), body); err != nil {
+		log.Error(err, "processing notification")
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
-	ctx := r.Context()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *notificationHandler) processNotification(ctx context.Context, body []byte) error {
+	var payload notificationPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("parsing notification payload: %w", err)
+	}
 
 	var dataRecords []parsedRecord
 	for _, rawRecord := range payload.Records {
@@ -89,7 +95,7 @@ func (h *notificationHandler) handleNotification(w http.ResponseWriter, r *http.
 		h.dispatchDataEvents(ctx, dataRecords)
 	}
 
-	w.WriteHeader(http.StatusOK)
+	return nil
 }
 
 func (h *notificationHandler) handleTestEvent(ctx context.Context, bucketName string) {

@@ -53,10 +53,10 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
 ```
 
 The adapter's deployment should be configured with environment variables that
-identify its connection name (see NOOBAA_CONNECTION_NAME in the Kafka
-configuration section). When the operator calls put-bucket-notification for a
-bucket, it uses this connection name so that NooBaa knows where to deliver
-notifications (HTTP endpoint or Kafka topic, depending on NOTIFICATIONS_MODE).
+identify its connection name (ADAPTER_ID and ADAPTER_TOPIC). When the operator
+calls put-bucket-notification for a bucket, it uses these values so that NooBaa
+knows where to deliver notifications (HTTP endpoint or Kafka topic, depending on
+NOTIFICATIONS_MODE).
 
 Internal MCG/NooBaa trigger CRD
 -------------------------------
@@ -166,22 +166,19 @@ and use those connection details and keys to issue the request to noobaa using S
 ```
 aws s3api put-bucket-notification --bucket "foo-bucket" --notification-configuration '{
   "TopicConfiguration": {
-    "Id": "$NOOBAA_CONNECTION_NAME",
+    "Id": "$ADAPTER_ID",
     "Events": ["s3:ObjectCreated:*"],
-    "Topic": "$NOOBAA_CONNECTION_NAME/connect.json"
+    "Topic": "$ADAPTER_TOPIC"
   }
 }'
 ```
 
 The Topic in the S3 notification configuration is always a reference to the
-NooBaa connection secret: "NOOBAA_CONNECTION_NAME/connect.json". It is not the
-Kafka topic itself — for Kafka mode, the actual Kafka topic is the "topic" field
-inside the connect.json (see the NooBaa Kafka connection setup section). For HTTP
-mode, the connect.json contains the HTTP endpoint details instead.
-
-NOOBAA_CONNECTION_NAME is an env var on the adapter deployment that identifies
-which NooBaa connection was configured during the one-time setup (HTTP or Kafka,
-depending on NOTIFICATIONS_MODE).
+NooBaa connection secret (ADAPTER_TOPIC, e.g. "mcg-adapter-connection/connect.json").
+It is not the Kafka topic itself — for Kafka mode, the actual Kafka topic is the
+"topic" field inside the connect.json (see the NooBaa Kafka connection setup
+section). For HTTP mode, the connect.json contains the HTTP endpoint details
+instead.
 
 If successful, the BucketNotificationSet condition will be marked as "True"
 
@@ -404,14 +401,14 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
 }'
 ```
 
-4. When the operator calls put-bucket-notification for a bucket, it uses the
-   Kafka connection name as the Topic prefix, e.g.:
+4. When the operator calls put-bucket-notification for a bucket, it uses
+   ADAPTER_ID and ADAPTER_TOPIC, e.g.:
 
 ```
 aws s3api put-bucket-notification --bucket "foo-bucket" \
   --notification-configuration '{
     "TopicConfiguration": {
-      "Id": "mcg-adapter-connection",
+      "Id": "mcg-adapter",
       "Events": ["s3:ObjectCreated:*"],
       "Topic": "mcg-adapter-connection/connect.json"
     }
@@ -424,14 +421,14 @@ Kafka configuration
 
 Kafka configuration is defined via env on the adapter Deployment:
 
+	ADAPTER_ID: identifier for bucket notification configuration
+	    (default: "mcg-adapter")
+	ADAPTER_TOPIC: NooBaa connection secret reference used as TopicArn in
+	    put-bucket-notification calls
+	    (default: "mcg-adapter-connection/connect.json")
 	NOTIFICATIONS_MODE: "http" or "kafka" — selects whether the adapter
 	    receives NooBaa bucket notifications via its HTTP server or by
 	    consuming from a Kafka topic (default: "http")
-	NOOBAA_CONNECTION_NAME: the name of the NooBaa connection configured
-	    during the one-time setup (e.g. "mcg-adapter-connection"). Used as
-	    the Id and Topic prefix in put-bucket-notification calls. The same
-	    name is used regardless of notifications mode — only one mode is
-	    active at a time.
 	KAFKA_BROKERS: comma-separated list of host:port (required in both
 	    modes — even in HTTP mode the adapter needs Kafka to produce
 	    cloudevents to trigger Kafka topics)
