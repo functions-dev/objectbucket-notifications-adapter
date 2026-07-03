@@ -32,65 +32,65 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	internalv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
+	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
 	"github.com/functions-dev/mcg-adapter/internal/s3client"
 )
 
-// MCGOBCTriggerReconciler reconciles a MCGOBCTrigger object
-type MCGOBCTriggerReconciler struct {
+// ObjectBucketSourceReconciler reconciles an ObjectBucketSource object
+type ObjectBucketSourceReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	AdapterID    string
 	AdapterTopic string
 }
 
-// +kubebuilder:rbac:groups=internal.functions.dev,resources=mcgobctriggers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=internal.functions.dev,resources=mcgobctriggers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=internal.functions.dev,resources=mcgobctriggers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sources.functions.dev,resources=objectbucketsources,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sources.functions.dev,resources=objectbucketsources/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sources.functions.dev,resources=objectbucketsources/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-func (r *MCGOBCTriggerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ObjectBucketSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var trigger internalv1alpha1.MCGOBCTrigger
-	if err := r.Get(ctx, req.NamespacedName, &trigger); err != nil {
+	var source sourcesv1alpha1.ObjectBucketSource
+	if err := r.Get(ctx, req.NamespacedName, &source); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	if !trigger.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &trigger)
+	if !source.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, &source)
 	}
 
-	if !controllerutil.ContainsFinalizer(&trigger, internalv1alpha1.FinalizerName) {
-		controllerutil.AddFinalizer(&trigger, internalv1alpha1.FinalizerName)
-		if err := r.Update(ctx, &trigger); err != nil {
+	if !controllerutil.ContainsFinalizer(&source, sourcesv1alpha1.FinalizerName) {
+		controllerutil.AddFinalizer(&source, sourcesv1alpha1.FinalizerName)
+		if err := r.Update(ctx, &source); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	obcName := trigger.Spec.OBC.Name
-	ns := trigger.Namespace
+	obcName := source.Spec.ObjectBucketClaim.Name
+	ns := source.Namespace
 
 	bucketHost, bucketName, bucketPort, err := r.readOBCConfigMap(ctx, ns, obcName)
 	if err != nil {
 		log.Info("OBC ConfigMap not available, requeuing", "obc", obcName, "error", err)
-		r.setCondition(ctx, &trigger, internalv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionFalse, "ConfigMapNotReady", err.Error())
+		r.setCondition(ctx, &source, sourcesv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionFalse, "ConfigMapNotReady", err.Error())
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	accessKey, secretKey, err := r.readOBCSecret(ctx, ns, obcName)
 	if err != nil {
 		log.Info("OBC Secret not available, requeuing", "obc", obcName, "error", err)
-		r.setCondition(ctx, &trigger, internalv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionFalse, "SecretNotReady", err.Error())
+		r.setCondition(ctx, &source, sourcesv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionFalse, "SecretNotReady", err.Error())
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	r.setCondition(ctx, &trigger, internalv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionTrue, "CredentialsAvailable", "OBC ConfigMap and Secret are available")
+	r.setCondition(ctx, &source, sourcesv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionTrue, "CredentialsAvailable", "OBC ConfigMap and Secret are available")
 
 	mergedEvents, err := r.computeMergedEvents(ctx, ns, obcName)
 	if err != nil {
@@ -102,25 +102,25 @@ func (r *MCGOBCTriggerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if err := s3client.PutBucketNotification(ctx, s3c, bucketName, r.AdapterID, r.AdapterTopic, mergedEvents); err != nil {
 		log.Error(err, "failed to set bucket notification", "bucket", bucketName)
-		r.setCondition(ctx, &trigger, internalv1alpha1.ConditionBucketNotificationSet, metav1.ConditionFalse, "PutNotificationFailed", err.Error())
+		r.setCondition(ctx, &source, sourcesv1alpha1.ConditionBucketNotificationSet, metav1.ConditionFalse, "PutNotificationFailed", err.Error())
 		return ctrl.Result{}, err
 	}
 
 	log.Info("bucket notification set", "bucket", bucketName, "events", mergedEvents)
-	r.setCondition(ctx, &trigger, internalv1alpha1.ConditionBucketNotificationSet, metav1.ConditionTrue, "NotificationConfigured", "Bucket notification configured successfully")
+	r.setCondition(ctx, &source, sourcesv1alpha1.ConditionBucketNotificationSet, metav1.ConditionTrue, "NotificationConfigured", "Bucket notification configured successfully")
 
 	return ctrl.Result{}, nil
 }
 
-func (r *MCGOBCTriggerReconciler) reconcileDelete(ctx context.Context, trigger *internalv1alpha1.MCGOBCTrigger) (ctrl.Result, error) {
+func (r *ObjectBucketSourceReconciler) reconcileDelete(ctx context.Context, source *sourcesv1alpha1.ObjectBucketSource) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	if !controllerutil.ContainsFinalizer(trigger, internalv1alpha1.FinalizerName) {
+	if !controllerutil.ContainsFinalizer(source, sourcesv1alpha1.FinalizerName) {
 		return ctrl.Result{}, nil
 	}
 
-	obcName := trigger.Spec.OBC.Name
-	ns := trigger.Namespace
+	obcName := source.Spec.ObjectBucketClaim.Name
+	ns := source.Namespace
 
 	bucketHost, bucketName, bucketPort, err := r.readOBCConfigMap(ctx, ns, obcName)
 	if err != nil {
@@ -130,7 +130,7 @@ func (r *MCGOBCTriggerReconciler) reconcileDelete(ctx context.Context, trigger *
 		if secretErr != nil {
 			log.Info("OBC Secret not available during deletion, removing finalizer anyway", "obc", obcName)
 		} else {
-			mergedEvents, mergeErr := r.computeMergedEventsExcluding(ctx, ns, obcName, trigger.Name)
+			mergedEvents, mergeErr := r.computeMergedEventsExcluding(ctx, ns, obcName, source.Name)
 			if mergeErr != nil {
 				log.Error(mergeErr, "computing merged events during deletion")
 			} else {
@@ -154,15 +154,15 @@ func (r *MCGOBCTriggerReconciler) reconcileDelete(ctx context.Context, trigger *
 		}
 	}
 
-	controllerutil.RemoveFinalizer(trigger, internalv1alpha1.FinalizerName)
-	if err := r.Update(ctx, trigger); err != nil {
+	controllerutil.RemoveFinalizer(source, sourcesv1alpha1.FinalizerName)
+	if err := r.Update(ctx, source); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *MCGOBCTriggerReconciler) readOBCConfigMap(ctx context.Context, namespace, name string) (host, bucketName, port string, err error) {
+func (r *ObjectBucketSourceReconciler) readOBCConfigMap(ctx context.Context, namespace, name string) (host, bucketName, port string, err error) {
 	var cm corev1.ConfigMap
 	if err = r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &cm); err != nil {
 		return "", "", "", fmt.Errorf("getting ConfigMap %s/%s: %w", namespace, name, err)
@@ -178,7 +178,7 @@ func (r *MCGOBCTriggerReconciler) readOBCConfigMap(ctx context.Context, namespac
 	return host, bucketName, port, nil
 }
 
-func (r *MCGOBCTriggerReconciler) readOBCSecret(ctx context.Context, namespace, name string) (accessKey, secretKey string, err error) {
+func (r *ObjectBucketSourceReconciler) readOBCSecret(ctx context.Context, namespace, name string) (accessKey, secretKey string, err error) {
 	var secret corev1.Secret
 	if err = r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
 		return "", "", fmt.Errorf("getting Secret %s/%s: %w", namespace, name, err)
@@ -193,19 +193,19 @@ func (r *MCGOBCTriggerReconciler) readOBCSecret(ctx context.Context, namespace, 
 	return accessKey, secretKey, nil
 }
 
-func (r *MCGOBCTriggerReconciler) computeMergedEvents(ctx context.Context, namespace, obcName string) ([]string, error) {
+func (r *ObjectBucketSourceReconciler) computeMergedEvents(ctx context.Context, namespace, obcName string) ([]string, error) {
 	return r.computeMergedEventsExcluding(ctx, namespace, obcName, "")
 }
 
-func (r *MCGOBCTriggerReconciler) computeMergedEventsExcluding(ctx context.Context, namespace, obcName, excludeName string) ([]string, error) {
-	var list internalv1alpha1.MCGOBCTriggerList
+func (r *ObjectBucketSourceReconciler) computeMergedEventsExcluding(ctx context.Context, namespace, obcName, excludeName string) ([]string, error) {
+	var list sourcesv1alpha1.ObjectBucketSourceList
 	if err := r.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 		return nil, err
 	}
 
 	eventSet := make(map[string]struct{})
 	for _, t := range list.Items {
-		if t.Spec.OBC.Name != obcName {
+		if t.Spec.ObjectBucketClaim.Name != obcName {
 			continue
 		}
 		if excludeName != "" && t.Name == excludeName {
@@ -226,23 +226,23 @@ func (r *MCGOBCTriggerReconciler) computeMergedEventsExcluding(ctx context.Conte
 	return events, nil
 }
 
-func (r *MCGOBCTriggerReconciler) setCondition(ctx context.Context, trigger *internalv1alpha1.MCGOBCTrigger, condType string, status metav1.ConditionStatus, reason, message string) {
-	meta.SetStatusCondition(&trigger.Status.Conditions, metav1.Condition{
+func (r *ObjectBucketSourceReconciler) setCondition(ctx context.Context, source *sourcesv1alpha1.ObjectBucketSource, condType string, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&source.Status.Conditions, metav1.Condition{
 		Type:               condType,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
-		ObservedGeneration: trigger.Generation,
+		ObservedGeneration: source.Generation,
 	})
-	if err := r.Status().Update(ctx, trigger); err != nil {
+	if err := r.Status().Update(ctx, source); err != nil {
 		logf.FromContext(ctx).Error(err, "updating status condition", "type", condType)
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *MCGOBCTriggerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ObjectBucketSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&internalv1alpha1.MCGOBCTrigger{}).
-		Named("mcgobctrigger").
+		For(&sourcesv1alpha1.ObjectBucketSource{}).
+		Named("objectbucketsource").
 		Complete(r)
 }

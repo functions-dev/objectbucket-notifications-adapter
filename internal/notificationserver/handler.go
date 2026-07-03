@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/IBM/sarama"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -13,7 +14,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	internalv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
+	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
 	ceDispatch "github.com/functions-dev/mcg-adapter/internal/cloudevents"
 	"github.com/functions-dev/mcg-adapter/internal/eventmatch"
 )
@@ -99,48 +100,49 @@ func (h *notificationHandler) processNotification(ctx context.Context, body []by
 }
 
 func (h *notificationHandler) handleTestEvent(ctx context.Context, bucketName string) {
-	triggers, err := h.findTriggersForBucket(ctx, bucketName)
+	sources, err := h.findSourcesForBucket(ctx, bucketName)
 	if err != nil {
-		log.Error(err, "finding triggers for test event", "bucket", bucketName)
+		log.Error(err, "finding sources for test event", "bucket", bucketName)
 		return
 	}
 
-	for i := range triggers {
-		trigger := &triggers[i]
+	for i := range sources {
+		source := &sources[i]
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			if err := h.client.Get(ctx, client.ObjectKeyFromObject(trigger), trigger); err != nil {
+			if err := h.client.Get(ctx, client.ObjectKeyFromObject(source), source); err != nil {
 				return err
 			}
-			meta.SetStatusCondition(&trigger.Status.Conditions, metav1.Condition{
-				Type:               internalv1alpha1.ConditionTestEventReceived,
+			meta.SetStatusCondition(&source.Status.Conditions, metav1.Condition{
+				Type:               sourcesv1alpha1.ConditionTestEventReceived,
 				Status:             metav1.ConditionTrue,
 				Reason:             "TestEventReceived",
 				Message:            "Received test event from NooBaa",
-				ObservedGeneration: trigger.Generation,
+				ObservedGeneration: source.Generation,
 			})
-			return h.client.Status().Update(ctx, trigger)
+			return h.client.Status().Update(ctx, source)
 		}); err != nil {
-			log.Error(err, "updating TestEventReceived condition", "trigger", trigger.Name, "namespace", trigger.Namespace)
+			log.Error(err, "updating TestEventReceived condition", "source", source.Name, "namespace", source.Namespace)
 		} else {
-			log.Info("set TestEventReceived=True", "trigger", trigger.Name, "namespace", trigger.Namespace)
+			log.Info("set TestEventReceived=True", "source", source.Name, "namespace", source.Namespace)
 		}
 	}
 }
 
 func (h *notificationHandler) dispatchDataEvents(ctx context.Context, records []parsedRecord) {
-	var allTriggers internalv1alpha1.MCGOBCTriggerList
-	if err := h.client.List(ctx, &allTriggers); err != nil {
-		log.Error(err, "listing triggers for data events")
+	var allSources sourcesv1alpha1.ObjectBucketSourceList
+	if err := h.client.List(ctx, &allSources); err != nil {
+		log.Error(err, "listing sources for data events")
 		return
 	}
 
-	for _, trigger := range allTriggers.Items {
+	for _, source := range allSources.Items {
 		var matchedRecords []json.RawMessage
+		obcName := source.Spec.ObjectBucketClaim.Name
 		for _, rec := range records {
-			if rec.header.S3.Bucket.Name != trigger.Spec.OBC.Name {
+			if rec.header.S3.Bucket.Name != obcName {
 				continue
 			}
-			for _, pattern := range trigger.Spec.Events {
+			for _, pattern := range source.Spec.Events {
 				if eventmatch.MatchEvent(pattern, rec.header.EventName) {
 					matchedRecords = append(matchedRecords, rec.raw)
 					break
@@ -152,39 +154,38 @@ func (h *notificationHandler) dispatchDataEvents(ctx context.Context, records []
 			continue
 		}
 
-		for _, target := range trigger.Spec.Triggers {
-			if target.URI != "" {
-				if err := ceDispatch.DispatchEvent(ctx, target.URI, trigger.Spec.OBC.Name, matchedRecords); err != nil {
-					log.Error(err, "dispatching event", "target", target.URI, "bucket", trigger.Spec.OBC.Name)
-				} else {
-					log.Info("dispatched event", "target", target.URI, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
-				}
+		sinkURI := source.Spec.Sink.URI
+		if strings.HasPrefix(sinkURI, "kafka:") {
+			topic := strings.TrimPrefix(sinkURI, "kafka:")
+			if h.kafkaProducer == nil {
+				log.Error(fmt.Errorf("no kafka brokers configured"), "cannot dispatch to kafka", "topic", topic, "bucket", obcName)
+				continue
 			}
-			if target.Kafka != nil {
-				if h.kafkaProducer == nil {
-					log.Error(fmt.Errorf("no kafka brokers configured"), "cannot dispatch to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name)
-					continue
-				}
-				if err := ceDispatch.DispatchEventToKafka(ctx, h.kafkaProducer, target.Kafka.Topic, trigger.Spec.OBC.Name, matchedRecords); err != nil {
-					log.Error(err, "dispatching event to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name)
-				} else {
-					log.Info("dispatched event to kafka", "topic", target.Kafka.Topic, "bucket", trigger.Spec.OBC.Name, "records", len(matchedRecords))
-				}
+			if err := ceDispatch.DispatchEventToKafka(ctx, h.kafkaProducer, topic, obcName, matchedRecords); err != nil {
+				log.Error(err, "dispatching event to kafka", "topic", topic, "bucket", obcName)
+			} else {
+				log.Info("dispatched event to kafka", "topic", topic, "bucket", obcName, "records", len(matchedRecords))
+			}
+		} else {
+			if err := ceDispatch.DispatchEvent(ctx, sinkURI, obcName, matchedRecords); err != nil {
+				log.Error(err, "dispatching event", "target", sinkURI, "bucket", obcName)
+			} else {
+				log.Info("dispatched event", "target", sinkURI, "bucket", obcName, "records", len(matchedRecords))
 			}
 		}
 	}
 }
 
-func (h *notificationHandler) findTriggersForBucket(ctx context.Context, bucketName string) ([]internalv1alpha1.MCGOBCTrigger, error) {
-	var allTriggers internalv1alpha1.MCGOBCTriggerList
-	if err := h.client.List(ctx, &allTriggers); err != nil {
+func (h *notificationHandler) findSourcesForBucket(ctx context.Context, bucketName string) ([]sourcesv1alpha1.ObjectBucketSource, error) {
+	var allSources sourcesv1alpha1.ObjectBucketSourceList
+	if err := h.client.List(ctx, &allSources); err != nil {
 		return nil, err
 	}
 
-	var matched []internalv1alpha1.MCGOBCTrigger
-	for _, t := range allTriggers.Items {
-		if t.Spec.OBC.Name == bucketName {
-			matched = append(matched, t)
+	var matched []sourcesv1alpha1.ObjectBucketSource
+	for _, s := range allSources.Items {
+		if s.Spec.ObjectBucketClaim.Name == bucketName {
+			matched = append(matched, s)
 		}
 	}
 	return matched, nil

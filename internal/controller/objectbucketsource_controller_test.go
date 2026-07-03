@@ -27,10 +27,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	internalv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
+	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
 )
 
-var _ = Describe("MCGOBCTrigger Controller", func() {
+var _ = Describe("ObjectBucketSource Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -38,26 +38,26 @@ var _ = Describe("MCGOBCTrigger Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
-		mcgobctrigger := &internalv1alpha1.MCGOBCTrigger{}
+		objectBucketSource := &sourcesv1alpha1.ObjectBucketSource{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind MCGOBCTrigger")
-			err := k8sClient.Get(ctx, typeNamespacedName, mcgobctrigger)
+			By("creating the custom resource for the Kind ObjectBucketSource")
+			err := k8sClient.Get(ctx, typeNamespacedName, objectBucketSource)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &internalv1alpha1.MCGOBCTrigger{
+				resource := &sourcesv1alpha1.ObjectBucketSource{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					Spec: internalv1alpha1.MCGOBCTriggerSpec{
-						OBC: internalv1alpha1.OBCReference{
+					Spec: sourcesv1alpha1.ObjectBucketSourceSpec{
+						ObjectBucketClaim: sourcesv1alpha1.OBCReference{
 							Name: "test-obc",
 						},
 						Events: []string{"s3:ObjectCreated:*"},
-						Triggers: []internalv1alpha1.TriggerTarget{
-							{URI: "http://localhost:8080"},
+						Sink: sourcesv1alpha1.SinkSpec{
+							URI: "http://localhost:8080",
 						},
 					},
 				}
@@ -66,17 +66,16 @@ var _ = Describe("MCGOBCTrigger Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &internalv1alpha1.MCGOBCTrigger{}
+			resource := &sourcesv1alpha1.ObjectBucketSource{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance MCGOBCTrigger")
+			By("Cleanup the specific resource instance ObjectBucketSource")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &MCGOBCTriggerReconciler{
+			controllerReconciler := &ObjectBucketSourceReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -85,8 +84,6 @@ var _ = Describe("MCGOBCTrigger Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 	})
 })

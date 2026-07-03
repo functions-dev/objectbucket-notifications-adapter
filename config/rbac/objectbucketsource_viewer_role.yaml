@@ -1,7 +1,7 @@
 # This rule is not used by the project mcg-adapter itself.
 # It is provided to allow the cluster admin to help manage permissions for users.
 #
-# Grants read-only access to internal.functions.dev resources.
+# Grants read-only access to sources.functions.dev resources.
 # This role is intended for users who need visibility into these resources
 # without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
 
@@ -11,19 +11,19 @@ metadata:
   labels:
     app.kubernetes.io/name: mcg-adapter
     app.kubernetes.io/managed-by: kustomize
-  name: mcgobctrigger-viewer-role
+  name: objectbucketsource-viewer-role
 rules:
 - apiGroups:
-  - internal.functions.dev
+  - sources.functions.dev
   resources:
-  - mcgobctriggers
+  - objectbucketsources
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - internal.functions.dev
+  - sources.functions.dev
   resources:
-  - mcgobctriggers/status
+  - objectbucketsources/status
   verbs:
   - get

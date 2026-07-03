@@ -22,7 +22,7 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the mcg-adapter itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- mcgobctrigger_admin_role.yaml
-- mcgobctrigger_editor_role.yaml
-- mcgobctrigger_viewer_role.yaml
+- objectbucketsource_admin_role.yaml
+- objectbucketsource_editor_role.yaml
+- objectbucketsource_viewer_role.yaml
 

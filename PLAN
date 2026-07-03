@@ -2,7 +2,7 @@ Multicloud Object Gateway Adapter (NooNaa)
 ==========================================
 
 The adapter will be an HTTP server and/or Kafka consumer running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection (either as HTTP notifications, or Kafka notifications)
-It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by MCGOBCTrigger custom resources.
+It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by OBCSource custom resources.
 The notifications to individual triggers will be sent as cloudevents via HTTP or Kafka
 It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, https://github.com/IBM/sarama, and the operator sdk (https://sdk.operatorframework.io)
 
@@ -58,26 +58,23 @@ calls put-bucket-notification for a bucket, it uses these values so that NooBaa
 knows where to deliver notifications (HTTP endpoint or Kafka topic, depending on
 NOTIFICATIONS_MODE).
 
-Internal MCG/NooBaa trigger CRD
--------------------------------
+ObjectBucketSource CRD
+----------------------------
 
-an example CR from the MCGOBCTrigger:
+an example CR from the ObjectBucketSource:
 ```
-apiVersion: internal.functions.dev/v1alpha1
-kind: MCGOBCTrigger
+apiVersion: sources.functions.dev/v1alpha1
+kind: ObjectBucketSource
 metadata:
   namespace: foobar
   name: foo
 spec:
-  obc:
+  objectBucketClaim:
     name: foo-bucket
   events:
   - "s3:ObjectCreated:*"
-  triggers:
-  - uri: http://foo.foobar.svc.cluster.local
-  - uri: http://logger.foobar.svc.cluster.local
-  - kafka:
-      topic: foo-topic
+  sink:
+    uri: http://foo.foobar.svc.cluster.local
 status:
   conditions:
   - type: OBCCredentialsAvailable
@@ -88,7 +85,25 @@ status:
     status: "True"
 ```
 
-Where "obc" is a reference to an ObjectBucketClaim (living in the same namespace as the MCGOBCTrigger), e.g.:
+As an alternative, uri can point to a Kafka Topic:
+```
+apiVersion: sources.functions.dev/v1alpha1
+kind: ObjectBucketSource
+metadata:
+  namespace: foobar
+  name: foo
+spec:
+  objectBucketClaim:
+    name: foo-bucket
+  events:
+  - "s3:ObjectCreated:*"
+  sink:
+    uri: kafka:foo-topic
+status:
+   ...
+```
+
+Where "objectBucketClaim" is a reference to an ObjectBucketClaim (living in the same namespace as the ObjectBucketSource), e.g.:
 
 
 ```
@@ -207,13 +222,13 @@ for each record, the dispatcher will match the bucket name and eventName and fin
 (dropping the "s3:" prefix, and matching '*' at the end of the specified event name as meaning any suffix (like in this case, "ObjectCreated:Put" matching the specified "s3:ObjectCreated:*")
 To each such trigger, it will send the list of records as a cloudevent (it will keep the same JSON structure of the original, including thje Records list, but will filter out records not matching the rules.)
 
-Multiple MCGOBCTrigger resources for the same bucket
+Multiple ObjectBucketSource resources for the same bucket
 ----------------------------------------------------
 
-When multiple MCGOBCTrigger CRs reference the same OBC (same bucket), the
+When multiple ObjectBucketSource CRs reference the same OBC (same bucket), the
 operator merges them internally into a single S3 bucket notification
 configuration. The merged configuration subscribes to the superset (union) of
-all event types requested across all MCGOBCTrigger CRs for that bucket.
+all event types requested across all ObjectBucketSource CRs for that bucket.
 
 For example, if trigger A subscribes to "s3:ObjectCreated:*" and trigger B
 subscribes to "s3:ObjectRemoved:*", the operator issues a single
@@ -222,28 +237,28 @@ put-bucket-notification call with Events: ["s3:ObjectCreated:*",
 
 When the adapter receives a notification from NooBaa, it filters the event
 internally before dispatching: each trigger URI only receives events matching
-the event types specified in its own MCGOBCTrigger CR. A trigger that subscribed
+the event types specified in its own ObjectBucketSource CR. A trigger that subscribed
 only to "s3:ObjectCreated:*" will never receive "s3:ObjectRemoved:*" events,
 even though the bucket-level notification is configured for both.
 
-When a MCGOBCTrigger CR is deleted or updated, the operator recomputes the
+When a ObjectBucketSource CR is deleted or updated, the operator recomputes the
 merged event set for the affected bucket. If the superset shrinks (i.e., no
 remaining CR needs a previously included event type), the operator updates the
-S3 bucket notification configuration accordingly. If no MCGOBCTrigger CRs
+S3 bucket notification configuration accordingly. If no ObjectBucketSource CRs
 remain for a bucket, the operator removes the bucket notification entirely
 
 
 Finalizer and cleanup on deletion
 ----------------------------------
 
-The operator adds a finalizer (e.g., "internal.functions.dev/mcgobctrigger") to
-each MCGOBCTrigger CR on creation. When a MCGOBCTrigger CR is deleted, the
+The operator adds a finalizer (e.g., "sources.functions.dev/objectbucketsource") to
+each ObjectBucketSource CR on creation. When a ObjectBucketSource CR is deleted, the
 finalizer ensures the operator has a chance to clean up before the resource is
 removed from the API server. During finalization, the operator recomputes the
 merged event set for the affected bucket (excluding the CR being deleted). If
-other MCGOBCTrigger CRs still reference the same bucket, the operator updates
+other ObjectBucketSource CRs still reference the same bucket, the operator updates
 the S3 bucket notification configuration with the reduced event set. If no
-MCGOBCTrigger CRs remain for the bucket, the operator removes the bucket
+ObjectBucketSource CRs remain for the bucket, the operator removes the bucket
 notification from NooBaa entirely. Once cleanup is complete, the operator removes
 the finalizer, allowing Kubernetes to garbage-collect the CR.
 
@@ -255,10 +270,10 @@ The adapter runs under a dedicated ServiceAccount. A ClusterRole grants the
 following permissions, bound via a ClusterRoleBinding:
 
 - ConfigMaps and Secrets: cluster-wide read access (get, list, watch). This is
-  required because MCGOBCTrigger CRs can exist in any namespace and the adapter
+  required because ObjectBucketSource CRs can exist in any namespace and the adapter
   needs to read the OBC-associated ConfigMap and Secret from each CR's namespace.
 
-- MCGOBCTrigger CRs (internal.functions.dev/v1alpha1): full access (get, list,
+- ObjectBucketSource CRs (sources.functions.dev/v1alpha1): full access (get, list,
   watch, create, update, patch, delete). The operator needs to watch for changes,
   update status conditions, and manage finalizers.
 

@@ -16,8 +16,8 @@ resources:
     namespaced: true
   controller: true
   domain: functions.dev
-  group: internal
-  kind: MCGOBCTrigger
+  group: sources
+  kind: ObjectBucketSource
   path: github.com/functions-dev/mcg-adapter/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- internal_v1alpha1_mcgobctrigger.yaml
+- sources_v1alpha1_objectbucketsource.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

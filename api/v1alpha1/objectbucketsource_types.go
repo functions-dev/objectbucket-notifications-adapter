@@ -25,17 +25,17 @@ const (
 	ConditionBucketNotificationSet   = "BucketNotificationSet"
 	ConditionTestEventReceived       = "TestEventReceived"
 
-	FinalizerName = "internal.functions.dev/mcgobctrigger"
+	FinalizerName = "sources.functions.dev/objectbucketsource"
 )
 
-// MCGOBCTriggerSpec defines the desired state of MCGOBCTrigger.
-type MCGOBCTriggerSpec struct {
-	// OBC is a reference to the ObjectBucketClaim in the same namespace.
-	OBC OBCReference `json:"obc"`
+// ObjectBucketSourceSpec defines the desired state of ObjectBucketSource.
+type ObjectBucketSourceSpec struct {
+	// ObjectBucketClaim is a reference to the ObjectBucketClaim in the same namespace.
+	ObjectBucketClaim OBCReference `json:"objectBucketClaim"`
 	// Events is the list of S3 event types to subscribe to (e.g. "s3:ObjectCreated:*").
 	Events []string `json:"events"`
-	// Triggers is the list of endpoints to dispatch matching CloudEvents to.
-	Triggers []TriggerTarget `json:"triggers"`
+	// Sink is the endpoint to dispatch matching CloudEvents to.
+	Sink SinkSpec `json:"sink"`
 }
 
 type OBCReference struct {
@@ -43,44 +43,41 @@ type OBCReference struct {
 	Name string `json:"name"`
 }
 
-type TriggerTarget struct {
-	// URI is the absolute URL to send CloudEvents to via HTTP.
-	URI string `json:"uri,omitempty"`
-	// Kafka identifies a Kafka topic to send CloudEvents to.
-	Kafka *KafkaTrigger `json:"kafka,omitempty"`
+// SinkSpec defines the destination for CloudEvents. URI can be an HTTP URL
+// (e.g. "http://foo.bar.svc.cluster.local") or a Kafka topic reference
+// (e.g. "kafka:my-topic").
+type SinkSpec struct {
+	// URI is the destination to send CloudEvents to. Use an HTTP URL for
+	// HTTP delivery, or "kafka:<topic>" for Kafka delivery.
+	URI string `json:"uri"`
 }
 
-type KafkaTrigger struct {
-	// Topic is the Kafka topic to produce CloudEvents to.
-	Topic string `json:"topic"`
-}
-
-// MCGOBCTriggerStatus defines the observed state of MCGOBCTrigger.
-type MCGOBCTriggerStatus struct {
+// ObjectBucketSourceStatus defines the observed state of ObjectBucketSource.
+type ObjectBucketSourceStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// MCGOBCTrigger is the Schema for the mcgobctriggers API.
-type MCGOBCTrigger struct {
+// ObjectBucketSource is the Schema for the objectbucketsources API.
+type ObjectBucketSource struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MCGOBCTriggerSpec   `json:"spec,omitempty"`
-	Status MCGOBCTriggerStatus `json:"status,omitempty"`
+	Spec   ObjectBucketSourceSpec   `json:"spec,omitempty"`
+	Status ObjectBucketSourceStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// MCGOBCTriggerList contains a list of MCGOBCTrigger.
-type MCGOBCTriggerList struct {
+// ObjectBucketSourceList contains a list of ObjectBucketSource.
+type ObjectBucketSourceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MCGOBCTrigger `json:"items"`
+	Items           []ObjectBucketSource `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&MCGOBCTrigger{}, &MCGOBCTriggerList{})
+	SchemeBuilder.Register(&ObjectBucketSource{}, &ObjectBucketSourceList{})
 }

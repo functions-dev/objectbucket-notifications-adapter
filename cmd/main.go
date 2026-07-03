@@ -45,7 +45,7 @@ import (
 
 	"github.com/IBM/sarama"
 
-	internalv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
+	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
 	"github.com/functions-dev/mcg-adapter/internal/controller"
 	kafkaconfig "github.com/functions-dev/mcg-adapter/internal/kafka"
 	"github.com/functions-dev/mcg-adapter/internal/notificationserver"
@@ -60,7 +60,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(internalv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(sourcesv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -282,13 +282,13 @@ func main() {
 		}
 	}
 
-	if err := (&controller.MCGOBCTriggerReconciler{
+	if err := (&controller.ObjectBucketSourceReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
 		AdapterID:    adapterID,
 		AdapterTopic: adapterTopic,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCGOBCTrigger")
+		setupLog.Error(err, "unable to create controller", "controller", "ObjectBucketSource")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

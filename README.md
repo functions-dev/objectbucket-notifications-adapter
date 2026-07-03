@@ -1,42 +1,39 @@
 # MCG Adapter
 
-A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicloud Object Gateway) and dispatches them as CloudEvents to configured trigger endpoints.
+A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicloud Object Gateway) and dispatches them as CloudEvents to configured sink endpoints.
 
 ## Description
 
-The MCG Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `MCGOBCTrigger` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured triggers and dispatches CloudEvents via HTTP or Kafka to the matching endpoints.
+The MCG Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `ObjectBucketSource` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured sources and dispatches CloudEvents via HTTP or Kafka to the matching sinks.
 
-## Custom Resource: MCGOBCTrigger
+## Custom Resource: ObjectBucketSource
 
 ```yaml
-apiVersion: internal.functions.dev/v1alpha1
-kind: MCGOBCTrigger
+apiVersion: sources.functions.dev/v1alpha1
+kind: ObjectBucketSource
 metadata:
   namespace: foobar
   name: foo
 spec:
-  obc:
+  objectBucketClaim:
     name: foo-bucket          # ObjectBucketClaim in the same namespace
   events:
   - "s3:ObjectCreated:*"      # S3 event types to subscribe to
-  triggers:
-  - uri: http://foo.foobar.svc.cluster.local
-  - uri: http://logger.foobar.svc.cluster.local
-  - kafka:
-      topic: foo-topic
+  sink:
+    uri: http://foo.foobar.svc.cluster.local
 ```
 
-Triggers can target HTTP endpoints (via `uri`) or Kafka topics (via `kafka.topic`). A single trigger entry can specify either or both. The Kafka broker(s) to connect to are configured globally via the `KAFKA_BROKERS` environment variable.
+The sink URI can be an HTTP endpoint or a Kafka topic reference (e.g. `kafka:foo-topic`). The Kafka broker(s) to connect to are configured globally via the `KAFKA_BROKERS` environment variable.
 
 The controller manages three status conditions:
 
 | Condition | Meaning |
 |---|---|
-| `OBCCredentialsAvailable` | The OBC’s ConfigMap and Secret exist with the expected keys |
+| `OBCCredentialsAvailable` | The OBC's ConfigMap and Secret exist with the expected keys |
 | `BucketNotificationSet` | The S3 bucket notification was configured in NooBaa |
 | `TestEventReceived` | The test event sent by NooBaa after notification setup was received |
 
-Multiple `MCGOBCTrigger` resources referencing the same OBC are merged into a single bucket notification configuration (union of event types). Each trigger only receives events matching its own subscription.
+Multiple `ObjectBucketSource` resources referencing the same OBC are merged into a single bucket notification configuration (union of event types). Each source only receives events matching its own subscription.
 
 ## Getting Started
 
@@ -57,7 +54,7 @@ The adapter is configured via environment variables:
 | `ADAPTER_TOPIC` | `mcg-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
 | `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on (HTTP mode only) |
 | `NOTIFICATIONS_MODE` | `http` | `http` or `kafka` — selects how the adapter receives NooBaa notifications |
-| `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses. Required for Kafka triggers and when `NOTIFICATIONS_MODE=kafka`. |
+| `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses. Required for Kafka sinks and when `NOTIFICATIONS_MODE=kafka`. |
 | `KAFKA_SECRET` | _(none)_ | Name of a Kubernetes Secret (in the adapter's namespace) containing Kafka credentials. See `kafka-secret-format.md`. |
 | `KAFKA_NOTIFICATIONS_TOPIC` | _(none)_ | Kafka topic to consume NooBaa notifications from. Required when `NOTIFICATIONS_MODE=kafka`. |
 | `KAFKA_NOTIFICATIONS_GROUP_ID` | _(none)_ | Consumer group ID for consuming NooBaa notifications. Required when `NOTIFICATIONS_MODE=kafka`. |
@@ -86,20 +83,20 @@ EOF
 
 ```sh
 existing_connections=$(oc get noobaa noobaa -n openshift-storage -o json \
-  | jq -c ‘.spec.bucketNotifications.connections // []’)
+  | jq -c '.spec.bucketNotifications.connections // []')
 
 updated_connections=$(echo "$existing_connections" | jq -c \
   --arg name "mcg-adapter-connection" \
-  ‘[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]’)
+  '[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]')
 
-oc patch noobaa noobaa --type=’merge’ -n openshift-storage -p ‘{
+oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
   "spec": {
     "bucketNotifications": {
-      "connections": ‘"${updated_connections}"’,
+      "connections": '"${updated_connections}"',
       "enabled": true
     }
   }
-}’
+}'
 ```
 
 ### NooBaa Connection Setup (Kafka mode)
@@ -111,7 +108,7 @@ Summary of the one-time setup:
 1. Create a `KafkaTopic` (e.g. `mcg-adapter-notifications`) and `KafkaUser` resources in Strimzi
 2. Create a NooBaa connection secret with `notification_protocol: kafka` pointing to the Kafka bootstrap and topic
 3. Patch the NooBaa CR to register the Kafka connection
-4. Create a Kubernetes Secret in the adapter’s namespace with the adapter’s Kafka credentials (see `kafka-secret-format.md`)
+4. Create a Kubernetes Secret in the adapter's namespace with the adapter's Kafka credentials (see `kafka-secret-format.md`)
 
 ### Deploy
 
@@ -159,4 +156,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

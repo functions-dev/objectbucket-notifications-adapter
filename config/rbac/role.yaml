@@ -14,9 +14,9 @@ rules:
   - list
   - watch
 - apiGroups:
-  - internal.functions.dev
+  - sources.functions.dev
   resources:
-  - mcgobctriggers
+  - objectbucketsources
   verbs:
   - create
   - delete
@@ -26,15 +26,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - internal.functions.dev
+  - sources.functions.dev
   resources:
-  - mcgobctriggers/finalizers
+  - objectbucketsources/finalizers
   verbs:
   - update
 - apiGroups:
-  - internal.functions.dev
+  - sources.functions.dev
   resources:
-  - mcgobctriggers/status
+  - objectbucketsources/status
   verbs:
   - get
   - patch
