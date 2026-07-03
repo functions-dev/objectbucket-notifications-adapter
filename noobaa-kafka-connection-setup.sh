@@ -8,7 +8,7 @@
 #
 # Before running this script, install the CRD and the mcg-adapter from this repo:
 #   make install
-#   make deploy-kafka IMG=quay.io/maschmid/mcg-adapter:latest
+#   make deploy-kafka IMG=<some-registry>/mcg-adapter:tag
 
 set -Eeuxo pipefail
 

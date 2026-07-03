@@ -6,7 +6,7 @@
 #
 # before running this secript, install the CRD and the mcg-adapter from this repo:
 #   make install
-#   make deploy IMG=quay.io/maschmid/mcg-adapter:latest
+#   make deploy IMG=<some-registry>/mcg-adapter:tag
 
 oc create secret generic mcg-adapter-connection \
   --from-file=connect.json=/dev/stdin -n openshift-storage <<EOF
