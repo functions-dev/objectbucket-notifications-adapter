@@ -3,12 +3,12 @@ kind: Service
 metadata:
   name: controller-manager-notifications
   labels:
-    app.kubernetes.io/name: mcg-adapter
+    app.kubernetes.io/name: objectbucket-notifications-adapter
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
     control-plane: controller-manager
-    app.kubernetes.io/name: mcg-adapter
+    app.kubernetes.io/name: objectbucket-notifications-adapter
   ports:
   - port: 8888
     targetPort: 8888

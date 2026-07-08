@@ -1,8 +1,8 @@
-Multicloud Object Gateway Adapter (NooNaa)
-==========================================
+ObjectBucket Notifications Adapter
+==================================
 
 The adapter will be an HTTP server and/or Kafka consumer running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection (either as HTTP notifications, or Kafka notifications)
-It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by OBCSource custom resources.
+It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by ObjectBucketSource custom resources.
 The notifications to individual triggers will be sent as cloudevents via HTTP or Kafka
 It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, https://github.com/IBM/sarama, and the operator sdk (https://sdk.operatorframework.io)
 

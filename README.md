@@ -1,10 +1,10 @@
-# MCG Adapter
+# ObjectBucket Notifications Adapter
 
 A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicloud Object Gateway) and dispatches them as CloudEvents to configured sink endpoints.
 
 ## Description
 
-The MCG Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `ObjectBucketSource` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured sources and dispatches CloudEvents via HTTP or Kafka to the matching sinks.
+The ObjectBucket Notifications Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `ObjectBucketSource` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured sources and dispatches CloudEvents via HTTP or Kafka to the matching sinks.
 
 ## Custom Resource: ObjectBucketSource
 
@@ -50,8 +50,8 @@ The adapter is configured via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ADAPTER_ID` | `mcg-adapter` | Identifier used in the S3 bucket notification configuration |
-| `ADAPTER_TOPIC` | `mcg-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
+| `ADAPTER_ID` | `objectbucket-notifications-adapter` | Identifier used in the S3 bucket notification configuration |
+| `ADAPTER_TOPIC` | `objectbucket-notifications-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
 | `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on (HTTP mode only) |
 | `NOTIFICATIONS_MODE` | `http` | `http` or `kafka` — selects how the adapter receives NooBaa notifications |
 | `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses. Required for Kafka sinks and when `NOTIFICATIONS_MODE=kafka`. |
@@ -66,10 +66,10 @@ Before the adapter can receive notifications via HTTP, register it as an HTTP co
 1. Create the connection secret:
 
 ```sh
-oc create secret generic mcg-adapter-connection \
+oc create secret generic objectbucket-notifications-adapter-connection \
   --from-file=connect.json=/dev/stdin -n openshift-storage <<EOF
 {
-  "name": "mcg-adapter-connection",
+  "name": "objectbucket-notifications-adapter-connection",
   "notification_protocol": "http",
   "agent_request_object": {
     "host": "<adapter-service>.<adapter-namespace>.svc.cluster.local",
@@ -86,7 +86,7 @@ existing_connections=$(oc get noobaa noobaa -n openshift-storage -o json \
   | jq -c '.spec.bucketNotifications.connections // []')
 
 updated_connections=$(echo "$existing_connections" | jq -c \
-  --arg name "mcg-adapter-connection" \
+  --arg name "objectbucket-notifications-adapter-connection" \
   '[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]')
 
 oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
@@ -105,7 +105,7 @@ As an alternative to HTTP, the adapter can consume NooBaa notifications from a K
 
 Summary of the one-time setup:
 
-1. Create a `KafkaTopic` (e.g. `mcg-adapter-notifications`) and `KafkaUser` resources in Strimzi
+1. Create a `KafkaTopic` (e.g. `objectbucket-notifications-adapter-notifications`) and `KafkaUser` resources in Strimzi
 2. Create a NooBaa connection secret with `notification_protocol: kafka` pointing to the Kafka bootstrap and topic
 3. Patch the NooBaa CR to register the Kafka connection
 4. Create a Kubernetes Secret in the adapter's namespace with the adapter's Kafka credentials (see `kafka-secret-format.md`)
@@ -113,15 +113,15 @@ Summary of the one-time setup:
 ### Deploy
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/mcg-adapter:tag
+make docker-build docker-push IMG=<some-registry>/objectbucket-notifications-adapter:tag
 make install
-make deploy IMG=<some-registry>/mcg-adapter:tag
+make deploy IMG=<some-registry>/objectbucket-notifications-adapter:tag
 ```
 
 To deploy in Kafka notifications mode (using default values from the PLAN):
 
 ```sh
-make deploy-kafka IMG=<some-registry>/mcg-adapter:tag
+make deploy-kafka IMG=<some-registry>/objectbucket-notifications-adapter:tag
 ```
 
 The `deploy-kafka` target uses the kustomize overlay in `config/kafka/` which sets `NOTIFICATIONS_MODE=kafka` along with default Kafka broker, topic, and secret values. Edit `config/kafka/kafka_env_patch.yaml` to customize these for your cluster.

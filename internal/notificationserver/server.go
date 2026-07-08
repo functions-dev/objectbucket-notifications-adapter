@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	ceDispatch "github.com/functions-dev/mcg-adapter/internal/cloudevents"
+	ceDispatch "github.com/functions-dev/objectbucket-notifications-adapter/internal/cloudevents"
 )
 
 var log = logf.Log.WithName("notification-server")

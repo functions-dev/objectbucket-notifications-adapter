@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
+	sourcesv1alpha1 "github.com/functions-dev/objectbucket-notifications-adapter/api/v1alpha1"
 )
 
 var _ = Describe("ObjectBucketSource Controller", func() {

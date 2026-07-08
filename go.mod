@@ -1,4 +1,4 @@
-module github.com/functions-dev/mcg-adapter
+module github.com/functions-dev/objectbucket-notifications-adapter
 
 go 1.25.0
 

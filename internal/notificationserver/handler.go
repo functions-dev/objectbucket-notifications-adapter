@@ -14,9 +14,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
-	ceDispatch "github.com/functions-dev/mcg-adapter/internal/cloudevents"
-	"github.com/functions-dev/mcg-adapter/internal/eventmatch"
+	sourcesv1alpha1 "github.com/functions-dev/objectbucket-notifications-adapter/api/v1alpha1"
+	ceDispatch "github.com/functions-dev/objectbucket-notifications-adapter/internal/cloudevents"
+	"github.com/functions-dev/objectbucket-notifications-adapter/internal/eventmatch"
 )
 
 type notificationHandler struct {

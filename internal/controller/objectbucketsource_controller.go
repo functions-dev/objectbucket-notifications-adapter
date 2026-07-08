@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
-	"github.com/functions-dev/mcg-adapter/internal/s3client"
+	sourcesv1alpha1 "github.com/functions-dev/objectbucket-notifications-adapter/api/v1alpha1"
+	"github.com/functions-dev/objectbucket-notifications-adapter/internal/s3client"
 )
 
 // ObjectBucketSourceReconciler reconciles an ObjectBucketSource object

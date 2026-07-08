@@ -45,10 +45,10 @@ import (
 
 	"github.com/IBM/sarama"
 
-	sourcesv1alpha1 "github.com/functions-dev/mcg-adapter/api/v1alpha1"
-	"github.com/functions-dev/mcg-adapter/internal/controller"
-	kafkaconfig "github.com/functions-dev/mcg-adapter/internal/kafka"
-	"github.com/functions-dev/mcg-adapter/internal/notificationserver"
+	sourcesv1alpha1 "github.com/functions-dev/objectbucket-notifications-adapter/api/v1alpha1"
+	"github.com/functions-dev/objectbucket-notifications-adapter/internal/controller"
+	kafkaconfig "github.com/functions-dev/objectbucket-notifications-adapter/internal/kafka"
+	"github.com/functions-dev/objectbucket-notifications-adapter/internal/notificationserver"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -214,11 +214,11 @@ func main() {
 
 	adapterID := os.Getenv("ADAPTER_ID")
 	if adapterID == "" {
-		adapterID = "mcg-adapter"
+		adapterID = "objectbucket-notifications-adapter"
 	}
 	adapterTopic := os.Getenv("ADAPTER_TOPIC")
 	if adapterTopic == "" {
-		adapterTopic = "mcg-adapter-connection/connect.json"
+		adapterTopic = "objectbucket-notifications-adapter-connection/connect.json"
 	}
 	adapterPort := 8888
 	if portStr := os.Getenv("ADAPTER_PORT"); portStr != "" {
