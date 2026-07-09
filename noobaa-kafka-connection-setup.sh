@@ -6,17 +6,17 @@
 #   - OpenShift Data Foundation installed in `openshift-storage`
 #   - Strimzi Kafka cluster `my-cluster` running in `kafka` namespace
 #
-# Before running this script, install the CRD and the mcg-adapter from this repo:
+# Before running this script, install the CRD and the objectbucket-notifications-adapter from this repo:
 #   make install
-#   make deploy-kafka IMG=<some-registry>/mcg-adapter:tag
+#   make deploy-kafka IMG=<some-registry>/objectbucket-notifications-adapter:tag
 
 set -Eeuxo pipefail
 
-mcg_adapter_topic="mcg-adapter-notifications"
-mcg_adapter_namespace="mcg-adapter-system"
+mcg_adapter_topic="objectbucket-notifications-adapter-notifications"
+mcg_adapter_namespace="objectbucket-notifications-adapter-system"
 kafka_namespace="kafka"
 kafka_cluster="my-cluster"
-connection_name="mcg-adapter-connection"
+connection_name="objectbucket-notifications-adapter-connection"
 
 # --- Strimzi KafkaTopic and KafkaUsers ---
 
@@ -68,7 +68,7 @@ cat <<EOF | oc apply -f -
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
-  name: mcg-adapter-user
+  name: objectbucket-notifications-adapter-user
   namespace: ${kafka_namespace}
   labels:
     strimzi.io/cluster: ${kafka_cluster}
@@ -92,7 +92,7 @@ EOF
 
 echo "Waiting for KafkaUser secrets to be created..."
 oc wait --for=condition=Ready kafkauser/noobaa-notifications-user -n "${kafka_namespace}" --timeout=120s
-oc wait --for=condition=Ready kafkauser/mcg-adapter-user -n "${kafka_namespace}" --timeout=120s
+oc wait --for=condition=Ready kafkauser/objectbucket-notifications-adapter-user -n "${kafka_namespace}" --timeout=120s
 
 # --- NooBaa Kafka connection secret ---
 
@@ -138,19 +138,19 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
   }
 }'
 
-# --- mcg-adapter Kafka credentials secret ---
-# Copy the mcg-adapter-user password from the Strimzi-managed secret in the
+# --- objectbucket-notifications-adapter Kafka credentials secret ---
+# Copy the objectbucket-notifications-adapter-user password from the Strimzi-managed secret in the
 # kafka namespace into a secret in the adapter namespace, using the format
 # expected by the adapter (see kafka-secret-format.md).
 
 oc create namespace "${mcg_adapter_namespace}" 2>/dev/null || true
 
-adapter_password=$(oc get secret -n "${kafka_namespace}" mcg-adapter-user \
+adapter_password=$(oc get secret -n "${kafka_namespace}" objectbucket-notifications-adapter-user \
   -o jsonpath='{.data.password}' | base64 --decode)
 
-oc delete secret -n "${mcg_adapter_namespace}" mcg-adapter-user 2>/dev/null || true
-oc create secret generic mcg-adapter-user -n "${mcg_adapter_namespace}" \
+oc delete secret -n "${mcg_adapter_namespace}" objectbucket-notifications-adapter-user 2>/dev/null || true
+oc create secret generic objectbucket-notifications-adapter-user -n "${mcg_adapter_namespace}" \
   --from-literal=protocol=SASL_PLAINTEXT \
   --from-literal=sasl.mechanism=SCRAM-SHA-512 \
-  --from-literal=user=mcg-adapter-user \
+  --from-literal=user=objectbucket-notifications-adapter-user \
   --from-literal=password="${adapter_password}"
