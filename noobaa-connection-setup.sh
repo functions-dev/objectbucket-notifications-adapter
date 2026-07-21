@@ -8,10 +8,10 @@
 #   make install
 #   make deploy IMG=<some-registry>/objectbucket-notifications-adapter:tag
 
-oc create secret generic objectbucket-notifications-adapter-connection \
+oc create secret generic mcg-adapter-connection \
   --from-file=connect.json=/dev/stdin -n openshift-storage <<EOF
 {
-  "name": "objectbucket-notifications-adapter-connection",
+  "name": "mcg-adapter-connection",
   "notification_protocol": "http",
   "agent_request_object": {
     "host": "objectbucket-notifications-adapter-notifications.objectbucket-notifications-adapter-system.svc.cluster.local",
@@ -23,7 +23,7 @@ EOF
 existing_connections=$(oc get noobaa noobaa -n openshift-storage -o json | jq -c '.spec.bucketNotifications.connections // []')
 
 updated_connections=$(echo "$existing_connections" | jq -c \
-  --arg name "objectbucket-notifications-adapter-connection" \
+  --arg name "mcg-adapter-connection" \
   '[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]')
 
 oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{

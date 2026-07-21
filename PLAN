@@ -1,8 +1,8 @@
 ObjectBucket Notifications Adapter
 ==================================
 
-The adapter will be an HTTP server and/or Kafka consumer running in a pod inside a k8s cluster, configured in noobaa as "bucketNotifications" connection (either as HTTP notifications, or Kafka notifications)
-It will distribute the notifications received from NooBaa to individual triggers, according to the configuration specified by ObjectBucketSource custom resources.
+The adapter will be an HTTP server and/or Kafka consumer running in a pod inside a k8s cluster, configured in noobaa/radosgw as "bucketNotifications" connection (either as HTTP notifications, or Kafka notifications)
+It will distribute the notifications received from NooBaa or radosgw to individual triggers, according to the configuration specified by ObjectBucketSource custom resources.
 The notifications to individual triggers will be sent as cloudevents via HTTP or Kafka
 It will be implemented in go, using k8s client libraries, the cloudevents k8s libraries, aws s3 client library, https://github.com/IBM/sarama, and the operator sdk (https://sdk.operatorframework.io)
 
@@ -10,8 +10,8 @@ NooBaa HTTP connection setup (manual, one-time)
 -----------------------------------------------
 
 Before the adapter can receive bucket notifications via HTTP, it must be registered as an
-HTTP notification connection in NooBaa. This is a manual, one-time setup step
-performed by a cluster administrator.
+HTTP notification connection in NooBaa/radosgw. This is a manual, one-time setup step
+performed by a cluster administrator. Example for Noobaa:
 
 1. Create a Secret in the openshift-storage namespace containing the connection
    details for the adapter. The Secret holds a JSON file describing the HTTP
@@ -53,7 +53,7 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
 ```
 
 The adapter's deployment should be configured with environment variables that
-identify its connection name (ADAPTER_ID and ADAPTER_TOPIC). When the operator
+identify its connection name (NOOBAA_ADAPTER_ID and NOOBAA_ADAPTER_TOPIC_ARN). When the operator
 calls put-bucket-notification for a bucket, it uses these values so that NooBaa
 knows where to deliver notifications (HTTP endpoint or Kafka topic, depending on
 NOTIFICATIONS_MODE).
@@ -181,15 +181,15 @@ and use those connection details and keys to issue the request to noobaa using S
 ```
 aws s3api put-bucket-notification --bucket "foo-bucket" --notification-configuration '{
   "TopicConfiguration": {
-    "Id": "$ADAPTER_ID",
+    "Id": "$NOOBAA_ADAPTER_ID",
     "Events": ["s3:ObjectCreated:*"],
-    "Topic": "$ADAPTER_TOPIC"
+    "Topic": "$NOOBAA_ADAPTER_TOPIC_ARN"
   }
 }'
 ```
 
 The Topic in the S3 notification configuration is always a reference to the
-NooBaa connection secret (ADAPTER_TOPIC, e.g. "mcg-adapter-connection/connect.json").
+NooBaa connection secret (NOOBAA_ADAPTER_TOPIC_ARN, e.g. "mcg-adapter-connection/connect.json").
 It is not the Kafka topic itself — for Kafka mode, the actual Kafka topic is the
 "topic" field inside the connect.json (see the NooBaa Kafka connection setup
 section). For HTTP mode, the connect.json contains the HTTP endpoint details
@@ -417,7 +417,7 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
 ```
 
 4. When the operator calls put-bucket-notification for a bucket, it uses
-   ADAPTER_ID and ADAPTER_TOPIC, e.g.:
+   NOOBAA_ADAPTER_ID and NOOBAA_ADAPTER_TOPIC_ARN, e.g.:
 
 ```
 aws s3api put-bucket-notification --bucket "foo-bucket" \
@@ -431,33 +431,44 @@ aws s3api put-bucket-notification --bucket "foo-bucket" \
 ```
 
 
-Kafka configuration
+Configuration
 -------------------
 
-Kafka configuration is defined via env on the adapter Deployment:
+Configuration is defined via env on the adapter Deployment:
 
-	ADAPTER_ID: identifier for bucket notification configuration
+	NOOBAA_ADAPTER_ID: identifier for NooBaa bucket notification configuration
 	    (default: "mcg-adapter")
-	ADAPTER_TOPIC: NooBaa connection secret reference used as TopicArn in
+	NOOBAA_ADAPTER_TOPIC_ARN: NooBaa connection secret reference used as TopicArn in
 	    put-bucket-notification calls
 	    (default: "mcg-adapter-connection/connect.json")
+	NOOBAA_ADAPTER_STORAGECLASS_PATTERN: A regular expression on OBC
+	    .spec.storageClassName to classify the OBC as a NooBaa-managed OBC
+	    (default: ".*noobaa\.io$")
+	RADOSGW_ADAPTER_ID: identifier for RadosGW bucket notification configuration
+	    (default: "rgw-adapter")
+	RADOSGW_ADAPTER_TOPIC_ARN: RadosGW TopicArn in put-bucket-notification calls
+	    (default: "arn:aws:sns:ocs-storagecluster-cephobjectstore::rgw-adapter-notifications")
+	RADOSGW_ADAPTER_STORAGECLASS_PATTERN: A regular expression on OBC
+	    .spec.storageClassName to classify the OBC as a ceph/radosgw-managed OBC
+	    (default: ".*ceph-rgw$")
 	NOTIFICATIONS_MODE: "http" or "kafka" — selects whether the adapter
-	    receives NooBaa bucket notifications via its HTTP server or by
+	    receives NooBaa/RadosGW bucket notifications via its HTTP server or by
 	    consuming from a Kafka topic (default: "http")
 	KAFKA_BROKERS: comma-separated list of host:port (required in both
 	    modes — even in HTTP mode the adapter needs Kafka to produce
 	    cloudevents to trigger Kafka topics)
 	KAFKA_SECRET: <name of the secret from the namespace of the adapter
 	    deployment> (required in both modes, same reason as KAFKA_BROKERS)
-	KAFKA_NOTIFICATIONS_TOPIC: the Kafka topic to consume NooBaa bucket
-	    notifications from (e.g. "mcg-adapter-notifications"). Only
-	    required when NOTIFICATIONS_MODE=kafka.
+	KAFKA_NOTIFICATIONS_TOPIC: comma-separated list of the Kafka topics to
+	    consume NooBaa/RadosGW bucket notifications from
+	    (e.g. "mcg-adapter-notifications,rgw-adapter-notifications").
+	    Only required when NOTIFICATIONS_MODE=kafka.
 	KAFKA_NOTIFICATIONS_GROUP_ID: the consumer group ID for consuming
-	    NooBaa notifications (e.g. "mcg-adapter-notifications"). Only
-	    required when NOTIFICATIONS_MODE=kafka.
+	    NooBaa/RadosGW notifications (e.g. "objectbucket-notifications-adapter").
+	    Only required when NOTIFICATIONS_MODE=kafka.
 
 The same Kafka credentials (KAFKA_SECRET) are used for both consuming
-notifications from NooBaa and producing cloudevents to trigger Kafka topics.
+notifications from NooBaa/RadosGW and producing cloudevents to trigger Kafka topics.
 
 The format of the kafka secret is defined in ./kafka-secret-format.md
 

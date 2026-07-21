@@ -12,7 +12,7 @@
 
 set -Eeuxo pipefail
 
-rgw_adapter_topic="objectbucket-notifications-adapter-notifications-rgw"
+rgw_adapter_topic="rgw-adapter-notifications"
 rgw_adapter_namespace="objectbucket-notifications-adapter-system"
 kafka_namespace="kafka"
 kafka_cluster="my-cluster"

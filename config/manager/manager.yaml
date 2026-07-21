@@ -66,10 +66,18 @@ spec:
         image: controller:latest
         name: manager
         env:
-        - name: ADAPTER_ID
-          value: "objectbucket-notifications-adapter"
-        - name: ADAPTER_TOPIC
-          value: "objectbucket-notifications-adapter-connection/connect.json"
+        - name: NOOBAA_ADAPTER_ID
+          value: "mcg-adapter"
+        - name: NOOBAA_ADAPTER_TOPIC_ARN
+          value: "mcg-adapter-connection/connect.json"
+        - name: NOOBAA_ADAPTER_STORAGECLASS_PATTERN
+          value: ".*noobaa\\.io$"
+        - name: RADOSGW_ADAPTER_ID
+          value: "rgw-adapter"
+        - name: RADOSGW_ADAPTER_TOPIC_ARN
+          value: "arn:aws:sns:ocs-storagecluster-cephobjectstore::rgw-adapter-notifications"
+        - name: RADOSGW_ADAPTER_STORAGECLASS_PATTERN
+          value: ".*ceph-rgw$"
         - name: ADAPTER_PORT
           value: "8888"
         - name: NOTIFICATIONS_MODE
