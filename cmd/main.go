@@ -222,7 +222,7 @@ func main() {
 		"arn:aws:sns:ocs-storagecluster-cephobjectstore::rgw-adapter-notifications")
 	radosgwStorageClassPattern := envOrDefault("RADOSGW_ADAPTER_STORAGECLASS_PATTERN", `.*ceph-rgw$`)
 
-	var adapterConfigs []controller.AdapterConfig
+	adapterConfigs := make([]controller.AdapterConfig, 0, 2)
 	for _, cfg := range []struct {
 		id, topic, pattern string
 	}{

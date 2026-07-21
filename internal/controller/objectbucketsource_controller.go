@@ -41,9 +41,9 @@ import (
 
 // AdapterConfig holds the notification configuration for a specific storage backend.
 type AdapterConfig struct {
-	ID                   string
-	Topic                string
-	StorageClassPattern  *regexp.Regexp
+	ID                  string
+	Topic               string
+	StorageClassPattern *regexp.Regexp
 }
 
 var obcGVR = schema.GroupVersionResource{
