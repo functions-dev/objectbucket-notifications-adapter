@@ -19,13 +19,16 @@ package controller
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,12 +39,24 @@ import (
 	"github.com/functions-dev/objectbucket-notifications-adapter/internal/s3client"
 )
 
+// AdapterConfig holds the notification configuration for a specific storage backend.
+type AdapterConfig struct {
+	ID                  string
+	Topic               string
+	StorageClassPattern *regexp.Regexp
+}
+
+var obcGVR = schema.GroupVersionResource{
+	Group:    "objectbucket.io",
+	Version:  "v1alpha1",
+	Resource: "objectbucketclaims",
+}
+
 // ObjectBucketSourceReconciler reconciles an ObjectBucketSource object
 type ObjectBucketSourceReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	AdapterID    string
-	AdapterTopic string
+	Scheme         *runtime.Scheme
+	AdapterConfigs []AdapterConfig
 }
 
 // +kubebuilder:rbac:groups=sources.functions.dev,resources=objectbucketsources,verbs=get;list;watch;create;update;patch;delete
@@ -49,6 +64,7 @@ type ObjectBucketSourceReconciler struct {
 // +kubebuilder:rbac:groups=sources.functions.dev,resources=objectbucketsources/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=objectbucket.io,resources=objectbucketclaims,verbs=get;list;watch
 
 func (r *ObjectBucketSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -76,6 +92,13 @@ func (r *ObjectBucketSourceReconciler) Reconcile(ctx context.Context, req ctrl.R
 	obcName := source.Spec.ObjectBucketClaim.Name
 	ns := source.Namespace
 
+	adapterCfg, err := r.resolveAdapterConfig(ctx, ns, obcName)
+	if err != nil {
+		log.Info("cannot resolve adapter config for OBC, requeuing", "obc", obcName, "error", err)
+		r.setCondition(ctx, &source, sourcesv1alpha1.ConditionOBCCredentialsAvailable, metav1.ConditionFalse, "OBCNotReady", err.Error())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	bucketHost, bucketName, bucketPort, err := r.readOBCConfigMap(ctx, ns, obcName)
 	if err != nil {
 		log.Info("OBC ConfigMap not available, requeuing", "obc", obcName, "error", err)
@@ -100,13 +123,13 @@ func (r *ObjectBucketSourceReconciler) Reconcile(ctx context.Context, req ctrl.R
 	endpoint := fmt.Sprintf("https://%s:%s", bucketHost, bucketPort)
 	s3c := s3client.NewS3Client(endpoint, accessKey, secretKey)
 
-	if err := s3client.PutBucketNotification(ctx, s3c, bucketName, r.AdapterID, r.AdapterTopic, mergedEvents); err != nil {
+	if err := s3client.PutBucketNotification(ctx, s3c, bucketName, adapterCfg.ID, adapterCfg.Topic, mergedEvents); err != nil {
 		log.Error(err, "failed to set bucket notification", "bucket", bucketName)
 		r.setCondition(ctx, &source, sourcesv1alpha1.ConditionBucketNotificationSet, metav1.ConditionFalse, "PutNotificationFailed", err.Error())
 		return ctrl.Result{}, err
 	}
 
-	log.Info("bucket notification set", "bucket", bucketName, "events", mergedEvents)
+	log.Info("bucket notification set", "bucket", bucketName, "events", mergedEvents, "adapterID", adapterCfg.ID)
 	r.setCondition(ctx, &source, sourcesv1alpha1.ConditionBucketNotificationSet, metav1.ConditionTrue, "NotificationConfigured", "Bucket notification configured successfully")
 
 	return ctrl.Result{}, nil
@@ -122,9 +145,16 @@ func (r *ObjectBucketSourceReconciler) reconcileDelete(ctx context.Context, sour
 	obcName := source.Spec.ObjectBucketClaim.Name
 	ns := source.Namespace
 
+	adapterCfg, cfgErr := r.resolveAdapterConfig(ctx, ns, obcName)
+	if cfgErr != nil {
+		log.Info("cannot resolve adapter config during deletion, removing finalizer anyway", "obc", obcName, "error", cfgErr)
+	}
+
 	bucketHost, bucketName, bucketPort, err := r.readOBCConfigMap(ctx, ns, obcName)
 	if err != nil {
 		log.Info("OBC ConfigMap not available during deletion, removing finalizer anyway", "obc", obcName)
+	} else if cfgErr != nil {
+		log.Info("adapter config not available during deletion, removing finalizer anyway", "obc", obcName)
 	} else {
 		accessKey, secretKey, secretErr := r.readOBCSecret(ctx, ns, obcName)
 		if secretErr != nil {
@@ -144,7 +174,7 @@ func (r *ObjectBucketSourceReconciler) reconcileDelete(ctx context.Context, sour
 						log.Info("removed bucket notification", "bucket", bucketName)
 					}
 				} else {
-					if err := s3client.PutBucketNotification(ctx, s3c, bucketName, r.AdapterID, r.AdapterTopic, mergedEvents); err != nil {
+					if err := s3client.PutBucketNotification(ctx, s3c, bucketName, adapterCfg.ID, adapterCfg.Topic, mergedEvents); err != nil {
 						log.Error(err, "updating bucket notification during deletion", "bucket", bucketName)
 					} else {
 						log.Info("updated bucket notification after deletion", "bucket", bucketName, "events", mergedEvents)
@@ -224,6 +254,40 @@ func (r *ObjectBucketSourceReconciler) computeMergedEventsExcluding(ctx context.
 		events = append(events, e)
 	}
 	return events, nil
+}
+
+func (r *ObjectBucketSourceReconciler) readOBCStorageClassName(ctx context.Context, namespace, name string) (string, error) {
+	var obc unstructured.Unstructured
+	obc.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   obcGVR.Group,
+		Version: obcGVR.Version,
+		Kind:    "ObjectBucketClaim",
+	})
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &obc); err != nil {
+		return "", fmt.Errorf("getting ObjectBucketClaim %s/%s: %w", namespace, name, err)
+	}
+	sc, _, _ := unstructured.NestedString(obc.Object, "spec", "storageClassName")
+	return sc, nil
+}
+
+func (r *ObjectBucketSourceReconciler) resolveAdapterConfig(ctx context.Context, namespace, obcName string) (*AdapterConfig, error) {
+	if len(r.AdapterConfigs) == 0 {
+		return nil, fmt.Errorf("no adapter configs defined")
+	}
+	if len(r.AdapterConfigs) == 1 {
+		return &r.AdapterConfigs[0], nil
+	}
+	storageClass, err := r.readOBCStorageClassName(ctx, namespace, obcName)
+	if err != nil {
+		return nil, err
+	}
+	for i := range r.AdapterConfigs {
+		cfg := &r.AdapterConfigs[i]
+		if cfg.StorageClassPattern != nil && cfg.StorageClassPattern.MatchString(storageClass) {
+			return cfg, nil
+		}
+	}
+	return nil, fmt.Errorf("no adapter config matches storageClassName %q for OBC %s/%s", storageClass, namespace, obcName)
 }
 
 func (r *ObjectBucketSourceReconciler) setCondition(ctx context.Context, source *sourcesv1alpha1.ObjectBucketSource, condType string, status metav1.ConditionStatus, reason, message string) {

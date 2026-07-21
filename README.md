@@ -1,10 +1,12 @@
 # ObjectBucket Notifications Adapter
 
-A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicloud Object Gateway) and dispatches them as CloudEvents to configured sink endpoints.
+A Kubernetes operator that receives S3 bucket notifications from NooBaa (Multicloud Object Gateway) and/or Ceph RadosGW and dispatches them as CloudEvents to configured sink endpoints.
 
 ## Description
 
-The ObjectBucket Notifications Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa. It can receive notifications via HTTP (default) or by consuming from a Kafka topic. It watches `ObjectBucketSource` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When NooBaa delivers a notification, the adapter matches the event against all configured sources and dispatches CloudEvents via HTTP or Kafka to the matching sinks.
+The ObjectBucket Notifications Adapter runs inside a Kubernetes cluster, registered as a `bucketNotifications` connection in NooBaa and/or as an SNS topic in RadosGW. It can receive notifications via HTTP (default) or by consuming from Kafka topics. It watches `ObjectBucketSource` custom resources to determine which S3 events from which buckets should be forwarded to which endpoints. When a notification arrives, the adapter matches the event against all configured sources and dispatches CloudEvents via HTTP or Kafka to the matching sinks.
+
+The adapter determines whether an OBC is managed by NooBaa or RadosGW by matching the OBC's `spec.storageClassName` against configurable regex patterns, and uses the corresponding adapter ID and topic ARN when setting up bucket notifications.
 
 ## Custom Resource: ObjectBucketSource
 
@@ -50,26 +52,30 @@ The adapter is configured via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ADAPTER_ID` | `objectbucket-notifications-adapter` | Identifier used in the S3 bucket notification configuration |
-| `ADAPTER_TOPIC` | `objectbucket-notifications-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
+| `NOOBAA_ADAPTER_ID` | `mcg-adapter` | Identifier used in the S3 bucket notification configuration for NooBaa-managed OBCs |
+| `NOOBAA_ADAPTER_TOPIC_ARN` | `mcg-adapter-connection/connect.json` | NooBaa connection secret reference used as TopicArn in put-bucket-notification calls |
+| `NOOBAA_ADAPTER_STORAGECLASS_PATTERN` | `.*noobaa\.io$` | Regex matched against OBC `spec.storageClassName` to classify as NooBaa-managed |
+| `RADOSGW_ADAPTER_ID` | `rgw-adapter` | Identifier used in the S3 bucket notification configuration for RadosGW-managed OBCs |
+| `RADOSGW_ADAPTER_TOPIC_ARN` | `arn:aws:sns:ocs-storagecluster-cephobjectstore::rgw-adapter-notifications` | RadosGW SNS TopicArn used in put-bucket-notification calls |
+| `RADOSGW_ADAPTER_STORAGECLASS_PATTERN` | `.*ceph-rgw$` | Regex matched against OBC `spec.storageClassName` to classify as RadosGW-managed |
 | `ADAPTER_PORT` | `8888` | Port the notification HTTP server listens on (HTTP mode only) |
-| `NOTIFICATIONS_MODE` | `http` | `http` or `kafka` — selects how the adapter receives NooBaa notifications |
+| `NOTIFICATIONS_MODE` | `http` | `http` or `kafka` — selects how the adapter receives NooBaa/RadosGW notifications |
 | `KAFKA_BROKERS` | _(none)_ | Comma-separated list of Kafka broker addresses. Required for Kafka sinks and when `NOTIFICATIONS_MODE=kafka`. |
 | `KAFKA_SECRET` | _(none)_ | Name of a Kubernetes Secret (in the adapter's namespace) containing Kafka credentials. See `kafka-secret-format.md`. |
-| `KAFKA_NOTIFICATIONS_TOPIC` | _(none)_ | Kafka topic to consume NooBaa notifications from. Required when `NOTIFICATIONS_MODE=kafka`. |
-| `KAFKA_NOTIFICATIONS_GROUP_ID` | _(none)_ | Consumer group ID for consuming NooBaa notifications. Required when `NOTIFICATIONS_MODE=kafka`. |
+| `KAFKA_NOTIFICATIONS_TOPIC` | _(none)_ | Comma-separated list of Kafka topics to consume NooBaa/RadosGW notifications from (e.g. `mcg-adapter-notifications,rgw-adapter-notifications`). Required when `NOTIFICATIONS_MODE=kafka`. |
+| `KAFKA_NOTIFICATIONS_GROUP_ID` | _(none)_ | Consumer group ID for consuming NooBaa/RadosGW notifications. Required when `NOTIFICATIONS_MODE=kafka`. |
 
 ### NooBaa Connection Setup (HTTP mode)
 
-Before the adapter can receive notifications via HTTP, register it as an HTTP connection in NooBaa (one-time setup):
+Before the adapter can receive notifications via HTTP, register it as an HTTP connection in NooBaa (one-time setup). A helper script `noobaa-connection-setup.sh` is provided. Manual steps:
 
 1. Create the connection secret:
 
 ```sh
-oc create secret generic objectbucket-notifications-adapter-connection \
+oc create secret generic mcg-adapter-connection \
   --from-file=connect.json=/dev/stdin -n openshift-storage <<EOF
 {
-  "name": "objectbucket-notifications-adapter-connection",
+  "name": "mcg-adapter-connection",
   "notification_protocol": "http",
   "agent_request_object": {
     "host": "<adapter-service>.<adapter-namespace>.svc.cluster.local",
@@ -86,7 +92,7 @@ existing_connections=$(oc get noobaa noobaa -n openshift-storage -o json \
   | jq -c '.spec.bucketNotifications.connections // []')
 
 updated_connections=$(echo "$existing_connections" | jq -c \
-  --arg name "objectbucket-notifications-adapter-connection" \
+  --arg name "mcg-adapter-connection" \
   '[.[] | select(.name != $name)] + [{"name": $name, "namespace": "openshift-storage"}]')
 
 oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
@@ -101,14 +107,24 @@ oc patch noobaa noobaa --type='merge' -n openshift-storage -p '{
 
 ### NooBaa Connection Setup (Kafka mode)
 
-As an alternative to HTTP, the adapter can consume NooBaa notifications from a Kafka topic. This requires a Strimzi-managed Kafka cluster. See the `PLAN` file for detailed setup steps, including creating the KafkaTopic, KafkaUsers, and the NooBaa Kafka connection secret.
+As an alternative to HTTP, the adapter can consume NooBaa notifications from a Kafka topic. This requires a Strimzi-managed Kafka cluster. A helper script `noobaa-kafka-connection-setup.sh` is provided. See the `PLAN` file for detailed steps.
 
 Summary of the one-time setup:
 
-1. Create a `KafkaTopic` (e.g. `objectbucket-notifications-adapter-notifications`) and `KafkaUser` resources in Strimzi
-2. Create a NooBaa connection secret with `notification_protocol: kafka` pointing to the Kafka bootstrap and topic
+1. Create a `KafkaTopic` (e.g. `mcg-adapter-notifications`) and `KafkaUser` resources in Strimzi
+2. Create a NooBaa connection secret (`mcg-adapter-connection`) with `notification_protocol: kafka` pointing to the Kafka bootstrap and topic
 3. Patch the NooBaa CR to register the Kafka connection
 4. Create a Kubernetes Secret in the adapter's namespace with the adapter's Kafka credentials (see `kafka-secret-format.md`)
+
+### RadosGW Connection Setup (Kafka mode)
+
+For Ceph RadosGW, bucket notifications are delivered via Kafka using SNS topics. A helper script `rook-kafka-connection-setup.sh` is provided. See the `PLAN` file for detailed steps.
+
+Summary of the one-time setup:
+
+1. Create a `KafkaTopic` (e.g. `rgw-adapter-notifications`) and `KafkaUser` resources in Strimzi
+2. Create an SNS topic in RadosGW pointing to the Kafka broker and topic
+3. Create a Kubernetes Secret in the adapter's namespace with the adapter's Kafka credentials (see `kafka-secret-format.md`)
 
 ### Deploy
 

@@ -21,7 +21,7 @@ type NotificationServer struct {
 	KafkaBrokers              []string
 	KafkaConfig               *sarama.Config
 	NotificationsMode         string
-	KafkaNotificationsTopic   string
+	KafkaNotificationsTopics  []string
 	KafkaNotificationsGroupID string
 }
 
@@ -83,7 +83,7 @@ func (s *NotificationServer) startKafkaConsumer(ctx context.Context, handler *no
 	defer func() { _ = consumerGroup.Close() }()
 
 	log.Info("starting kafka notification consumer",
-		"topic", s.KafkaNotificationsTopic,
+		"topics", s.KafkaNotificationsTopics,
 		"group", s.KafkaNotificationsGroupID,
 		"brokers", s.KafkaBrokers)
 
@@ -96,7 +96,7 @@ func (s *NotificationServer) startKafkaConsumer(ctx context.Context, handler *no
 	cgHandler := &consumerGroupHandler{handler: handler}
 
 	for {
-		if err := consumerGroup.Consume(ctx, []string{s.KafkaNotificationsTopic}, cgHandler); err != nil {
+		if err := consumerGroup.Consume(ctx, s.KafkaNotificationsTopics, cgHandler); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}

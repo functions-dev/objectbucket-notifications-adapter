@@ -15,6 +15,6 @@ spec:
         - name: KAFKA_SECRET
           value: "objectbucket-notifications-adapter-user"
         - name: KAFKA_NOTIFICATIONS_TOPIC
-          value: "objectbucket-notifications-adapter-notifications"
+          value: "mcg-adapter-notifications,rgw-adapter-notifications"
         - name: KAFKA_NOTIFICATIONS_GROUP_ID
-          value: "objectbucket-notifications-adapter-notifications"
+          value: "objectbucket-notifications-adapter"

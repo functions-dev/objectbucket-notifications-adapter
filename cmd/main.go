@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -212,14 +213,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	adapterID := os.Getenv("ADAPTER_ID")
-	if adapterID == "" {
-		adapterID = "objectbucket-notifications-adapter"
+	noobaaAdapterID := envOrDefault("NOOBAA_ADAPTER_ID", "mcg-adapter")
+	noobaaAdapterTopic := envOrDefault("NOOBAA_ADAPTER_TOPIC_ARN", "mcg-adapter-connection/connect.json")
+	noobaaStorageClassPattern := envOrDefault("NOOBAA_ADAPTER_STORAGECLASS_PATTERN", `.*noobaa\.io$`)
+
+	radosgwAdapterID := envOrDefault("RADOSGW_ADAPTER_ID", "rgw-adapter")
+	radosgwAdapterTopic := envOrDefault("RADOSGW_ADAPTER_TOPIC_ARN",
+		"arn:aws:sns:ocs-storagecluster-cephobjectstore::rgw-adapter-notifications")
+	radosgwStorageClassPattern := envOrDefault("RADOSGW_ADAPTER_STORAGECLASS_PATTERN", `.*ceph-rgw$`)
+
+	adapterConfigs := make([]controller.AdapterConfig, 0, 2)
+	for _, cfg := range []struct {
+		id, topic, pattern string
+	}{
+		{noobaaAdapterID, noobaaAdapterTopic, noobaaStorageClassPattern},
+		{radosgwAdapterID, radosgwAdapterTopic, radosgwStorageClassPattern},
+	} {
+		re, err := regexp.Compile(cfg.pattern)
+		if err != nil {
+			setupLog.Error(err, "invalid storageclass pattern", "pattern", cfg.pattern)
+			os.Exit(1)
+		}
+		adapterConfigs = append(adapterConfigs, controller.AdapterConfig{
+			ID:                  cfg.id,
+			Topic:               cfg.topic,
+			StorageClassPattern: re,
+		})
 	}
-	adapterTopic := os.Getenv("ADAPTER_TOPIC")
-	if adapterTopic == "" {
-		adapterTopic = "objectbucket-notifications-adapter-connection/connect.json"
-	}
+
 	adapterPort := 8888
 	if portStr := os.Getenv("ADAPTER_PORT"); portStr != "" {
 		var err error
@@ -238,7 +259,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	kafkaNotificationsTopic := os.Getenv("KAFKA_NOTIFICATIONS_TOPIC")
+	var kafkaNotificationsTopics []string
+	if topicsStr := os.Getenv("KAFKA_NOTIFICATIONS_TOPIC"); topicsStr != "" {
+		for _, t := range strings.Split(topicsStr, ",") {
+			if trimmed := strings.TrimSpace(t); trimmed != "" {
+				kafkaNotificationsTopics = append(kafkaNotificationsTopics, trimmed)
+			}
+		}
+	}
 	kafkaNotificationsGroupID := os.Getenv("KAFKA_NOTIFICATIONS_GROUP_ID")
 
 	var kafkaBrokers []string
@@ -283,10 +311,9 @@ func main() {
 	}
 
 	if err := (&controller.ObjectBucketSourceReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		AdapterID:    adapterID,
-		AdapterTopic: adapterTopic,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		AdapterConfigs: adapterConfigs,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ObjectBucketSource")
 		os.Exit(1)
@@ -294,7 +321,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	if notificationsMode == "kafka" {
-		if kafkaNotificationsTopic == "" {
+		if len(kafkaNotificationsTopics) == 0 {
 			setupLog.Error(fmt.Errorf("KAFKA_NOTIFICATIONS_TOPIC is required when NOTIFICATIONS_MODE=kafka"), "missing env")
 			os.Exit(1)
 		}
@@ -314,7 +341,7 @@ func main() {
 		KafkaBrokers:              kafkaBrokers,
 		KafkaConfig:               kafkaCfg,
 		NotificationsMode:         notificationsMode,
-		KafkaNotificationsTopic:   kafkaNotificationsTopic,
+		KafkaNotificationsTopics:  kafkaNotificationsTopics,
 		KafkaNotificationsGroupID: kafkaNotificationsGroupID,
 	}
 	if err := mgr.Add(notifServer); err != nil {
@@ -352,4 +379,11 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func envOrDefault(key, defaultValue string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultValue
 }

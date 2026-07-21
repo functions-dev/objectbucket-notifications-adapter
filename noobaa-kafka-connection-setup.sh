@@ -12,11 +12,11 @@
 
 set -Eeuxo pipefail
 
-mcg_adapter_topic="objectbucket-notifications-adapter-notifications"
+mcg_adapter_topic="mcg-adapter-notifications"
 mcg_adapter_namespace="objectbucket-notifications-adapter-system"
 kafka_namespace="kafka"
 kafka_cluster="my-cluster"
-connection_name="objectbucket-notifications-adapter-connection"
+connection_name="mcg-adapter-connection"
 
 # --- Strimzi KafkaTopic and KafkaUsers ---
 
