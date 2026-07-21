@@ -14,6 +14,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - objectbucket.io
+  resources:
+  - objectbucketclaims
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - sources.functions.dev
   resources:
   - objectbucketsources

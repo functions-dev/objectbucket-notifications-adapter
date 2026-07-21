@@ -114,29 +114,29 @@ oc wait --for=condition=Ready kafkauser/objectbucket-notifications-adapter-user 
 #      --from-literal=user.key="${rgw_kafka_userkey}"
 
 # Patch the cephObjectStores reconcileStrategy to Init so that it allows us adding the additionalVolumeMounts
-oc patch storagecluster ocs-storagecluster -n openshift-storage \
-  --type=merge \
-  -p '{"spec":{"managedResources":{"cephObjectStores":{"reconcileStrategy":"init"}}}}'
+#oc patch storagecluster ocs-storagecluster -n openshift-storage \
+#  --type=merge \
+#  -p '{"spec":{"managedResources":{"cephObjectStores":{"reconcileStrategy":"init"}}}}'
 
-echo "Sleeping for 10s to let the StorageCluster update the reconcileStrategy"
-sleep 10
+#echo "Sleeping for 10s to let the StorageCluster update the reconcileStrategy"
+#sleep 10
 
 # Mount the Kafka Secret
-cat <<EOF | oc apply -f -
-apiVersion: ceph.rook.io/v1
-kind: CephObjectStore
-metadata:
-  name: ocs-storagecluster-cephobjectstore
-  namespace: openshift-storage
-spec:
-  gateway:
-    additionalVolumeMounts:
-      - subPath: ${notification_kafka_user}-kafka
-        volumeSource:
-          secret:
-            secretName: ${notification_kafka_user}-kafka
-            defaultMode: 0644
-EOF
+#cat <<EOF | oc apply -f -
+#apiVersion: ceph.rook.io/v1
+#kind: CephObjectStore
+#metadata:
+#  name: ocs-storagecluster-cephobjectstore
+#  namespace: openshift-storage
+#spec:
+#  gateway:
+#    additionalVolumeMounts:
+#      - subPath: ${notification_kafka_user}-kafka
+#        volumeSource:
+#          secret:
+#            secretName: ${notification_kafka_user}-kafka
+#            defaultMode: 0644
+#EOF
 
 #oc delete secret --namespace openshift-storage "${notification_kafka_user}" 2>/dev/null || true
 #oc create secret --namespace openshift-storage generic "${notification_kafka_user}" \
